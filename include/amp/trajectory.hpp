@@ -3,9 +3,11 @@
 #include <array>
 #include <vector>
 
+#include "amp/so101_model.hpp"
+
 namespace amp {
 
-using JointVector = std::array<double, 6>;
+using JointVector = std::array<double, kSo101JointCount>;
 
 enum class ReachPlannerKind {
   aligator,

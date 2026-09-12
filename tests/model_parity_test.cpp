@@ -1,7 +1,6 @@
 #include <mujoco/mujoco.h>
 
 #include <Eigen/Core>
-#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -9,14 +8,11 @@
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/parsers/mjcf.hpp>
-#include <string_view>
 
 #include "amp/simulation.hpp"
+#include "amp/so101_model.hpp"
 
 namespace {
-
-constexpr std::array<std::string_view, 6> kJointNames = {
-    "shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"};
 
 bool require(const bool condition, const char* message) {
   if (!condition) {
@@ -30,8 +26,8 @@ bool check_configuration(amp::Simulation& simulation, const pinocchio::Model& pi
   auto& mj_model = simulation.model();
   auto& mj_data = simulation.data();
 
-  for (std::size_t index = 0; index < kJointNames.size(); ++index) {
-    const auto name = std::string(kJointNames[index]);
+  for (std::size_t index = 0; index < amp::kSo101JointNames.size(); ++index) {
+    const auto name = std::string(amp::kSo101JointNames[index]);
     const int mj_joint = mj_name2id(&mj_model, mjOBJ_JOINT, name.c_str());
     if (mj_joint < 0) {
       return false;
@@ -43,8 +39,8 @@ bool check_configuration(amp::Simulation& simulation, const pinocchio::Model& pi
   pinocchio::forwardKinematics(pin_model, pin_data, q);
   pinocchio::updateFramePlacements(pin_model, pin_data);
 
-  const int mj_site = mj_name2id(&mj_model, mjOBJ_SITE, "gripperframe");
-  const auto pin_frame = pin_model.getFrameId("gripperframe");
+  const int mj_site = mj_name2id(&mj_model, mjOBJ_SITE, amp::kSo101EndEffectorFrame.data());
+  const auto pin_frame = pin_model.getFrameId(amp::kSo101EndEffectorFrame.data());
   if (mj_site < 0 || pin_frame >= pin_model.nframes) {
     return false;
   }
@@ -75,14 +71,37 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  passed &= require(pin_model.nq == 6, "Pinocchio must expose six generalized coordinates");
-  passed &= require(pin_model.nv == 6, "Pinocchio must expose six velocities");
-  passed &= require(pin_model.existFrame("gripperframe"),
+  passed &= require(pin_model.nq == static_cast<int>(amp::kSo101JointCount),
+                    "Pinocchio must expose six generalized coordinates");
+  passed &= require(pin_model.nv == static_cast<int>(amp::kSo101JointCount),
+                    "Pinocchio must expose six velocities");
+  passed &= require(pin_model.nqs.front() == 0 && pin_model.nvs.front() == 0,
+                    "Pinocchio must use a fixed universe joint");
+  passed &= require(pin_model.existFrame(amp::kSo101EndEffectorFrame.data()),
                     "Pinocchio must expose the MuJoCo gripperframe site as a frame");
 
   const auto& mj_model = simulation->model();
-  for (std::size_t index = 0; index < kJointNames.size(); ++index) {
-    const auto name = std::string(kJointNames[index]);
+  passed &= require(mj_model.njnt == static_cast<int>(amp::kSo101JointCount),
+                    "MuJoCo must expose exactly the six canonical joints");
+  for (int joint = 0; joint < mj_model.njnt; ++joint) {
+    passed &= require(mj_model.jnt_type[joint] == mjJNT_HINGE,
+                      "MuJoCo must use six hinge joints and no floating base");
+  }
+  passed &= require(mj_model.nu >= static_cast<int>(amp::kSo101ArmJointCount),
+                    "MuJoCo must expose an actuator for every planned arm joint");
+  for (int actuator = 0;
+       actuator < static_cast<int>(amp::kSo101ArmJointCount) && actuator < mj_model.nu;
+       ++actuator) {
+    passed &= require(mj_model.actuator_forcelimited[actuator] != 0,
+                      "planned arm actuators must enforce effort limits");
+    passed &= require(std::abs(mj_model.actuator_forcerange[2 * actuator] +
+                               amp::kSo101ActuatorEffortLimitNm) <= 1e-9 &&
+                          std::abs(mj_model.actuator_forcerange[2 * actuator + 1] -
+                                   amp::kSo101ActuatorEffortLimitNm) <= 1e-9,
+                      "MuJoCo effort limits must match the planning contract");
+  }
+  for (std::size_t index = 0; index < amp::kSo101JointNames.size(); ++index) {
+    const auto name = std::string(amp::kSo101JointNames[index]);
     const int mj_joint = mj_name2id(&mj_model, mjOBJ_JOINT, name.c_str());
     passed &= require(mj_joint >= 0, "MuJoCo joint mapping must be complete");
     passed &= require(pin_model.existJointName(name), "Pinocchio joint mapping must be complete");

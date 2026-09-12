@@ -50,7 +50,7 @@ target_include_directories(amp_simulation PUBLIC include)
 target_link_libraries(amp_simulation PUBLIC mujoco::mujoco)
 target_compile_features(amp_simulation PUBLIC cxx_std_23)
 
-add_library(amp_planning src/reach_planner.cpp)
+add_library(amp_planning src/aligator_validation.cpp src/reach_planner.cpp)
 add_library(amp::planning ALIAS amp_planning)
 target_include_directories(amp_planning PUBLIC include)
 target_link_libraries(amp_planning
@@ -120,11 +120,18 @@ if(AMP_BUILD_TESTS)
   add_test(NAME reach_planner_contract COMMAND reach_planner_contract_test)
 
   add_executable(aligator_reach_planner_test tests/aligator_reach_planner_test.cpp)
-  target_link_libraries(aligator_reach_planner_test PRIVATE amp::planning)
+  target_link_libraries(aligator_reach_planner_test
+                        PRIVATE amp::planning pinocchio::pinocchio_parsers)
   target_compile_features(aligator_reach_planner_test PRIVATE cxx_std_23)
   target_compile_definitions(aligator_reach_planner_test
                              PRIVATE AMP_TEST_ROBOT_PATH="${AMP_SO101_MODEL_PATH}/so101.xml")
   add_test(NAME aligator_reachable_target COMMAND aligator_reach_planner_test)
+
+  add_executable(aligator_validation_test tests/aligator_validation_test.cpp)
+  target_include_directories(aligator_validation_test PRIVATE src)
+  target_link_libraries(aligator_validation_test PRIVATE amp::planning)
+  target_compile_features(aligator_validation_test PRIVATE cxx_std_23)
+  add_test(NAME aligator_internal_validation COMMAND aligator_validation_test)
 
   add_executable(trajectory_player_test tests/trajectory_player_test.cpp)
   target_link_libraries(trajectory_player_test

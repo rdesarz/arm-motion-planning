@@ -14,10 +14,9 @@
 #include <aligator/modelling/state-error.hpp>
 #include <aligator/solvers/proxddp/solver-proxddp.hpp>
 #include <aligator/utils/rollout.hpp>
-#include <array>
 #include <chrono>
 #include <cmath>
-#include <limits>
+#include <optional>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/algorithm/model.hpp>
@@ -27,25 +26,16 @@
 #include <utility>
 #include <vector>
 
+#include "aligator_validation.hpp"
 #include "amp/aligator_reach_planner.hpp"
+#include "amp/so101_model.hpp"
 
 namespace amp {
 
 namespace {
 
-constexpr std::array<const char*, 6> kJointNames = {"shoulder_pan", "shoulder_lift", "elbow_flex",
-                                                    "wrist_flex",   "wrist_roll",    "gripper"};
-
-constexpr std::size_t kArmJointCount = 5;
 constexpr std::size_t kMaximumStepCount = 1000;
 constexpr double kNominalTimeStepS = 0.02;
-constexpr double kExperimentalVelocityLimitRadS = 4.0;
-constexpr double kModelActuatorEffortLimitNm = 2.94;
-constexpr double kFinalPositionToleranceM = 0.005;
-constexpr double kFinalFrameSpeedToleranceMps = 0.02;
-constexpr double kJointLimitToleranceRad = 1e-6;
-constexpr double kEffortLimitToleranceNm = 1e-6;
-constexpr double kDynamicsDefectTolerance = 1e-5;
 
 PlanningError error(const PlanningErrorCode code, std::string message) {
   return PlanningError{.code = code, .message = std::move(message)};
@@ -59,6 +49,60 @@ double max_limit_violation(const Eigen::VectorXd& values, const Eigen::VectorXd&
     violation = std::max(violation, values[index] - upper[index]);
   }
   return std::max(0.0, violation);
+}
+
+std::optional<PlanningError> validate_request(const pinocchio::Model& model,
+                                              const ReachRequest& request) {
+  if (!std::isfinite(request.duration_s) || request.duration_s <= 0.0) {
+    return error(PlanningErrorCode::invalid_request,
+                 "duration_s must be finite and strictly positive");
+  }
+  if (!request.target_world_m.allFinite()) {
+    return error(PlanningErrorCode::invalid_request, "target_world_m must contain finite values");
+  }
+
+  for (std::size_t index = 0; index < request.q_start.size(); ++index) {
+    const double position = request.q_start[index];
+    if (!std::isfinite(position)) {
+      return error(PlanningErrorCode::invalid_request, "q_start must contain finite values");
+    }
+    if (position < model.lowerPositionLimit[static_cast<Eigen::Index>(index)] ||
+        position > model.upperPositionLimit[static_cast<Eigen::Index>(index)]) {
+      return error(PlanningErrorCode::invalid_request,
+                   "q_start violates the limit for " + std::string(kSo101JointNames[index]));
+    }
+  }
+  return std::nullopt;
+}
+
+std::expected<pinocchio::Model, PlanningError> build_arm_model(const pinocchio::Model& full_model,
+                                                               const JointVector& q_start) {
+  Eigen::Map<const Eigen::VectorXd> full_q(q_start.data(),
+                                           static_cast<Eigen::Index>(q_start.size()));
+
+  auto model_to_reduce = full_model;
+  // Pinocchio 4 rejects the MJCF's duplicate BODY/JOINT frame name while
+  // reducing. Rename only the private model copy; the canonical joint name
+  // and gripperframe contract remain unchanged.
+  for (auto& frame : model_to_reduce.frames) {
+    if (frame.name == kSo101JointNames[kSo101GripperIndex] && frame.type != pinocchio::JOINT) {
+      frame.name = "gripper_body";
+    }
+  }
+  const auto gripper_joint =
+      model_to_reduce.getJointId(kSo101JointNames[kSo101GripperIndex].data());
+  const std::vector<pinocchio::JointIndex> locked_joints{gripper_joint};
+  pinocchio::Model arm_model = pinocchio::buildReducedModel(model_to_reduce, locked_joints, full_q);
+  if (arm_model.nq != static_cast<int>(kSo101ArmJointCount) ||
+      arm_model.nv != static_cast<int>(kSo101ArmJointCount)) {
+    return std::unexpected(
+        error(PlanningErrorCode::model_mismatch, "locking the gripper did not create a 5-DoF arm"));
+  }
+  if (!arm_model.existFrame(kSo101EndEffectorFrame.data())) {
+    return std::unexpected(
+        error(PlanningErrorCode::frame_missing, "gripperframe was lost while locking the gripper"));
+  }
+  return arm_model;
 }
 
 }  // namespace
@@ -77,59 +121,18 @@ AligatorReachPlanner& AligatorReachPlanner::operator=(AligatorReachPlanner&&) no
 
 std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     const ReachRequest& request) const {
-  if (!std::isfinite(request.duration_s) || request.duration_s <= 0.0) {
-    return std::unexpected(error(PlanningErrorCode::invalid_request,
-                                 "duration_s must be finite and strictly positive"));
-  }
-  if (!request.target_world_m.allFinite()) {
-    return std::unexpected(
-        error(PlanningErrorCode::invalid_request, "target_world_m must contain finite values"));
-  }
-
-  for (std::size_t index = 0; index < request.q_start.size(); ++index) {
-    const double position = request.q_start[index];
-    if (!std::isfinite(position)) {
-      return std::unexpected(
-          error(PlanningErrorCode::invalid_request, "q_start must contain finite values"));
-    }
-    if (position < impl_->model_.lowerPositionLimit[static_cast<Eigen::Index>(index)] ||
-        position > impl_->model_.upperPositionLimit[static_cast<Eigen::Index>(index)]) {
-      return std::unexpected(
-          error(PlanningErrorCode::invalid_request,
-                "q_start violates the limit for " + std::string(kJointNames[index])));
-    }
+  if (const auto request_error = validate_request(impl_->model_, request)) {
+    return std::unexpected(*request_error);
   }
 
   const auto started_at = std::chrono::steady_clock::now();
 
   try {
-    Eigen::VectorXd full_q(static_cast<Eigen::Index>(request.q_start.size()));
-    for (std::size_t index = 0; index < request.q_start.size(); ++index) {
-      full_q[static_cast<Eigen::Index>(index)] = request.q_start[index];
+    auto arm_model_result = build_arm_model(impl_->model_, request.q_start);
+    if (!arm_model_result) {
+      return std::unexpected(arm_model_result.error());
     }
-
-    auto model_to_reduce = impl_->model_;
-    // Pinocchio 4 rejects the MJCF's duplicate BODY/JOINT frame name while
-    // reducing. Rename only the private model copy; the canonical joint name
-    // and gripperframe contract remain unchanged.
-    for (auto& frame : model_to_reduce.frames) {
-      if (frame.name == kJointNames.back() && frame.type != pinocchio::JOINT) {
-        frame.name = "gripper_body";
-      }
-    }
-    const auto gripper_joint = model_to_reduce.getJointId(kJointNames.back());
-    const std::vector<pinocchio::JointIndex> locked_joints{gripper_joint};
-    pinocchio::Model arm_model =
-        pinocchio::buildReducedModel(model_to_reduce, locked_joints, full_q);
-    if (arm_model.nq != static_cast<int>(kArmJointCount) ||
-        arm_model.nv != static_cast<int>(kArmJointCount)) {
-      return std::unexpected(error(PlanningErrorCode::model_mismatch,
-                                   "locking the gripper did not create a 5-DoF arm"));
-    }
-    if (!arm_model.existFrame("gripperframe")) {
-      return std::unexpected(error(PlanningErrorCode::frame_missing,
-                                   "gripperframe was lost while locking the gripper"));
-    }
+    pinocchio::Model arm_model = std::move(*arm_model_result);
 
     using Scalar = double;
     using Space = aligator::MultibodyPhaseSpace<Scalar>;
@@ -153,7 +156,9 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     const int ndx = state_space.ndx();
 
     Eigen::VectorXd x0(nq + nv);
-    x0.head(nq) = full_q.head(nq);
+    for (std::size_t joint = 0; joint < kSo101ArmJointCount; ++joint) {
+      x0[static_cast<Eigen::Index>(joint)] = request.q_start[joint];
+    }
     x0.tail(nv).setZero();
 
     const double requested_steps = request.duration_s / kNominalTimeStepS;
@@ -184,9 +189,9 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
 
     StageModel stage(running_cost, dynamics);
     const Eigen::VectorXd control_lower =
-        Eigen::VectorXd::Constant(nu, -kModelActuatorEffortLimitNm);
+        Eigen::VectorXd::Constant(nu, -kSo101ActuatorEffortLimitNm);
     const Eigen::VectorXd control_upper =
-        Eigen::VectorXd::Constant(nu, kModelActuatorEffortLimitNm);
+        Eigen::VectorXd::Constant(nu, kSo101ActuatorEffortLimitNm);
     stage.addConstraint(aligator::ControlErrorResidualTpl<Scalar>(ndx, zero_control),
                         BoxConstraint(control_lower, control_upper));
 
@@ -194,8 +199,8 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     Eigen::VectorXd state_upper(nq + nv);
     state_lower.head(nq) = arm_model.lowerPositionLimit;
     state_upper.head(nq) = arm_model.upperPositionLimit;
-    state_lower.tail(nv).setConstant(-kExperimentalVelocityLimitRadS);
-    state_upper.tail(nv).setConstant(kExperimentalVelocityLimitRadS);
+    state_lower.tail(nv).setConstant(-kSo101ExperimentalVelocityLimitRadS);
+    state_upper.tail(nv).setConstant(kSo101ExperimentalVelocityLimitRadS);
     stage.addConstraint(
         aligator::StateErrorResidualTpl<Scalar>(state_space, nu, state_space.neutral()),
         BoxConstraint(state_lower, state_upper));
@@ -207,7 +212,7 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     terminal_cost.addCost("posture",
                           QuadraticStateCost(state_space, nu, x0, terminal_state_weights));
 
-    const auto frame_id = arm_model.getFrameId("gripperframe");
+    const auto frame_id = arm_model.getFrameId(kSo101EndEffectorFrame.data());
     const FrameTranslationResidual position_residual(ndx, nu, arm_model, request.target_world_m,
                                                      frame_id);
     terminal_cost.addCost("position", QuadraticResidualCost(state_space, position_residual,
@@ -247,9 +252,9 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     double maximum_joint_violation = 0.0;
     double maximum_velocity_violation = 0.0;
     const Eigen::VectorXd velocity_lower =
-        Eigen::VectorXd::Constant(nv, -kExperimentalVelocityLimitRadS);
+        Eigen::VectorXd::Constant(nv, -kSo101ExperimentalVelocityLimitRadS);
     const Eigen::VectorXd velocity_upper =
-        Eigen::VectorXd::Constant(nv, kExperimentalVelocityLimitRadS);
+        Eigen::VectorXd::Constant(nv, kSo101ExperimentalVelocityLimitRadS);
     for (const auto& state : results.xs) {
       if (!state.allFinite() || state.size() != nq + nv) {
         return std::unexpected(
@@ -271,7 +276,7 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
       }
       maximum_effort_violation =
           std::max(maximum_effort_violation,
-                   std::max(0.0, control.cwiseAbs().maxCoeff() - kModelActuatorEffortLimitNm));
+                   std::max(0.0, control.cwiseAbs().maxCoeff() - kSo101ActuatorEffortLimitNm));
     }
 
     double maximum_dynamics_defect = 0.0;
@@ -285,7 +290,15 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
         return std::unexpected(error(PlanningErrorCode::validation_failed,
                                      "Aligator dynamics data has an unexpected type"));
       }
+      if (!explicit_data->xnext_.allFinite()) {
+        return std::unexpected(error(PlanningErrorCode::validation_failed,
+                                     "Aligator returned a non-finite dynamics rollout"));
+      }
       state_space.difference(explicit_data->xnext_, results.xs[step + 1], dynamics_difference);
+      if (!dynamics_difference.allFinite()) {
+        return std::unexpected(error(PlanningErrorCode::validation_failed,
+                                     "Aligator returned a non-finite dynamics rollout"));
+      }
       maximum_dynamics_defect =
           std::max(maximum_dynamics_defect, dynamics_difference.lpNorm<Eigen::Infinity>());
     }
@@ -301,21 +314,16 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
             .linear()
             .norm();
 
-    if (!std::isfinite(final_position_error) || !std::isfinite(final_frame_speed) ||
-        maximum_joint_violation > kJointLimitToleranceRad || maximum_velocity_violation > 1e-6 ||
-        maximum_effort_violation > kEffortLimitToleranceNm ||
-        maximum_dynamics_defect > kDynamicsDefectTolerance ||
-        final_position_error > kFinalPositionToleranceM ||
-        final_frame_speed > kFinalFrameSpeedToleranceMps) {
-      return std::unexpected(
-          error(PlanningErrorCode::validation_failed,
-                "Aligator result violated a postcondition (position_error=" +
-                    std::to_string(final_position_error) +
-                    ", frame_speed=" + std::to_string(final_frame_speed) +
-                    ", joint_violation=" + std::to_string(maximum_joint_violation) +
-                    ", velocity_violation=" + std::to_string(maximum_velocity_violation) +
-                    ", effort_violation=" + std::to_string(maximum_effort_violation) +
-                    ", dynamics_defect=" + std::to_string(maximum_dynamics_defect) + ")"));
+    const detail::AligatorValidationMetrics metrics{
+        .final_position_error_m = final_position_error,
+        .final_frame_speed_mps = final_frame_speed,
+        .max_joint_limit_violation_rad = maximum_joint_violation,
+        .max_velocity_limit_violation_rad_s = maximum_velocity_violation,
+        .max_effort_limit_violation_nm = maximum_effort_violation,
+        .max_dynamics_defect = maximum_dynamics_defect,
+    };
+    if (const auto validation_error = detail::validate_aligator_metrics(metrics)) {
+      return std::unexpected(error(PlanningErrorCode::validation_failed, *validation_error));
     }
 
     JointTrajectory trajectory;
@@ -327,12 +335,12 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
           .q = {},
           .velocity = {},
       };
-      for (std::size_t joint = 0; joint < kArmJointCount; ++joint) {
+      for (std::size_t joint = 0; joint < kSo101ArmJointCount; ++joint) {
         knot.q[joint] = results.xs[knot_index][static_cast<Eigen::Index>(joint)];
         knot.velocity[joint] = results.xs[knot_index][nq + static_cast<Eigen::Index>(joint)];
       }
-      knot.q.back() = request.q_start.back();
-      knot.velocity.back() = 0.0;
+      knot.q[kSo101GripperIndex] = request.q_start[kSo101GripperIndex];
+      knot.velocity[kSo101GripperIndex] = 0.0;
       trajectory.knots.push_back(knot);
     }
 
@@ -388,25 +396,25 @@ std::expected<std::unique_ptr<ReachPlanner>, PlanningError> ReachPlannerFactory:
               "Pinocchio could not load the robot MJCF: " + std::string(parse_error.what())));
   }
 
-  if (model.nq != static_cast<int>(kJointNames.size()) ||
-      model.nv != static_cast<int>(kJointNames.size())) {
+  if (model.nq != static_cast<int>(kSo101JointCount) ||
+      model.nv != static_cast<int>(kSo101JointCount)) {
     return std::unexpected(
         error(PlanningErrorCode::model_mismatch, "robot model must have six scalar joints"));
   }
-  for (std::size_t index = 0; index < kJointNames.size(); ++index) {
-    if (!model.existJointName(kJointNames[index])) {
+  for (std::size_t index = 0; index < kSo101JointNames.size(); ++index) {
+    if (!model.existJointName(kSo101JointNames[index].data())) {
       return std::unexpected(
           error(PlanningErrorCode::model_mismatch,
-                "robot model is missing joint " + std::string(kJointNames[index])));
+                "robot model is missing joint " + std::string(kSo101JointNames[index])));
     }
-    const auto joint = model.getJointId(kJointNames[index]);
+    const auto joint = model.getJointId(kSo101JointNames[index].data());
     if (model.idx_qs[joint] != static_cast<int>(index) ||
         model.idx_vs[joint] != static_cast<int>(index)) {
       return std::unexpected(error(PlanningErrorCode::model_mismatch,
                                    "robot joint order does not match the trajectory contract"));
     }
   }
-  if (!model.existFrame("gripperframe")) {
+  if (!model.existFrame(kSo101EndEffectorFrame.data())) {
     return std::unexpected(
         error(PlanningErrorCode::frame_missing, "robot model has no gripperframe"));
   }

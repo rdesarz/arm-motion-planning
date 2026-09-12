@@ -6,14 +6,12 @@
 #include <array>
 #include <cmath>
 #include <memory>
-#include <string_view>
+
+#include "amp/so101_model.hpp"
 
 namespace amp {
 
 namespace {
-
-constexpr std::array<std::string_view, 6> kJointNames = {
-    "shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"};
 
 std::expected<JointVector, std::string> sample_positions(const JointTrajectory& trajectory,
                                                          const double time_s) {
@@ -52,6 +50,7 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
     return std::unexpected("trajectory must contain a finite, positive-duration timeline");
   }
   double previous_time = -1.0;
+  const double gripper_reference = trajectory.knots.front().q[kSo101GripperIndex];
   for (const auto& knot : trajectory.knots) {
     if (!std::isfinite(knot.time_s) || knot.time_s <= previous_time) {
       return std::unexpected("trajectory timestamps must be finite and strictly increasing");
@@ -61,21 +60,25 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
         return std::unexpected("trajectory contains a non-finite joint position");
       }
     }
+    if (std::abs(knot.q[kSo101GripperIndex] - gripper_reference) > 1e-12 ||
+        std::abs(knot.velocity[kSo101GripperIndex]) > 1e-12) {
+      return std::unexpected("trajectory must keep the gripper position locked");
+    }
     previous_time = knot.time_s;
   }
 
   const auto& model = simulation.model();
   auto& data = simulation.data();
-  if (model.nq != static_cast<int>(kJointNames.size()) ||
-      model.nu != static_cast<int>(kJointNames.size()) || model.opt.timestep <= 0.0) {
+  if (model.nq != static_cast<int>(kSo101JointCount) ||
+      model.nu != static_cast<int>(kSo101JointCount) || model.opt.timestep <= 0.0) {
     return std::unexpected("MuJoCo model does not satisfy the six-joint playback contract");
   }
 
-  std::array<int, 6> qpos_addresses{};
-  std::array<int, 6> dof_addresses{};
-  std::array<int, 6> actuator_ids{};
-  for (std::size_t joint = 0; joint < kJointNames.size(); ++joint) {
-    const auto name = std::string(kJointNames[joint]);
+  std::array<int, kSo101JointCount> qpos_addresses{};
+  std::array<int, kSo101JointCount> dof_addresses{};
+  std::array<int, kSo101JointCount> actuator_ids{};
+  for (std::size_t joint = 0; joint < kSo101JointNames.size(); ++joint) {
+    const auto name = std::string(kSo101JointNames[joint]);
     const int joint_id = mj_name2id(&model, mjOBJ_JOINT, name.c_str());
     const int actuator_id = mj_name2id(&model, mjOBJ_ACTUATOR, name.c_str());
     if (joint_id < 0 || actuator_id < 0) {
@@ -86,13 +89,13 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
     actuator_ids[joint] = actuator_id;
   }
 
-  const int site_id = mj_name2id(&model, mjOBJ_SITE, "gripperframe");
+  const int site_id = mj_name2id(&model, mjOBJ_SITE, kSo101EndEffectorFrame.data());
   if (site_id < 0) {
     return std::unexpected("MuJoCo model is missing gripperframe");
   }
 
   simulation.reset();
-  for (std::size_t joint = 0; joint < kJointNames.size(); ++joint) {
+  for (std::size_t joint = 0; joint < kSo101JointNames.size(); ++joint) {
     const double initial_position = trajectory.knots.front().q[joint];
     if (!std::isfinite(initial_position)) {
       return std::unexpected("trajectory contains a non-finite initial position");
@@ -111,7 +114,7 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
     if (!command) {
       return std::unexpected(command.error());
     }
-    for (std::size_t joint = 0; joint < kJointNames.size(); ++joint) {
+    for (std::size_t joint = 0; joint < kSo101JointNames.size(); ++joint) {
       if (!std::isfinite((*command)[joint])) {
         return std::unexpected("trajectory interpolation produced a non-finite command");
       }
@@ -126,7 +129,7 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
     if (!reference) {
       return std::unexpected(reference.error());
     }
-    for (std::size_t joint = 0; joint < kJointNames.size(); ++joint) {
+    for (std::size_t joint = 0; joint < kSo101JointNames.size(); ++joint) {
       const double actual = data.qpos[qpos_addresses[joint]];
       if (!std::isfinite(actual) || !std::isfinite(data.qvel[dof_addresses[joint]])) {
         return std::unexpected("MuJoCo playback produced a non-finite state");
@@ -141,7 +144,7 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
   if (!reference_data) {
     return std::unexpected("MuJoCo could not allocate terminal reference data");
   }
-  for (std::size_t joint = 0; joint < kJointNames.size(); ++joint) {
+  for (std::size_t joint = 0; joint < kSo101JointNames.size(); ++joint) {
     reference_data->qpos[qpos_addresses[joint]] = trajectory.knots.back().q[joint];
   }
   mj_forward(&model, reference_data.get());

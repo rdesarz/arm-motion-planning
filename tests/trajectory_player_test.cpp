@@ -6,6 +6,7 @@
 
 #include "amp/reach_planner.hpp"
 #include "amp/simulation.hpp"
+#include "amp/so101_model.hpp"
 
 namespace {
 
@@ -43,13 +44,18 @@ int main() {
     return EXIT_FAILURE;
   }
 
+  bool passed = true;
+  auto unlocked_gripper = *trajectory;
+  unlocked_gripper.knots[unlocked_gripper.knots.size() / 2].q[amp::kSo101GripperIndex] += 0.1;
+  passed &= require(!amp::TrajectoryPlayer::play(unlocked_gripper, *simulation),
+                    "playback must reject a trajectory that moves the locked gripper");
+
   const auto playback = amp::TrajectoryPlayer::play(*trajectory, *simulation);
   if (!playback) {
     std::cerr << "FAILED: " << playback.error() << "\n";
     return EXIT_FAILURE;
   }
 
-  bool passed = true;
   passed &= require(playback->planned_terminal_error_m == trajectory->report.final_position_error_m,
                     "playback must preserve the planner's terminal error metric");
   passed &= require(std::isfinite(playback->simulated_terminal_tracking_error_m),
