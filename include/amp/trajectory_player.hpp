@@ -18,6 +18,10 @@ class TrajectoryPlayer {
  public:
   [[nodiscard]] static std::expected<PlaybackReport, std::string> play(
       const JointTrajectory& trajectory, Simulation& simulation);
+
+  // Opens an interactive viewer, plays in real time, and pauses on the final pose.
+  [[nodiscard]] static std::expected<void, std::string> visualize(const JointTrajectory& trajectory,
+                                                                  Simulation& simulation);
 };
 
 }  // namespace amp

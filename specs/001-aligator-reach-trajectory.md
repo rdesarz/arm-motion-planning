@@ -440,6 +440,8 @@ Playback reports, separately:
 
 The optimized torque controls are not sent to the current MuJoCo position actuators. Consequently, successful playback is evidence of position-reference tracking in this simulator, not execution of the optimized torque trajectory.
 
+Interactive playback is selected with `--visual` (which implies `--playback`). The GLFW viewer advances at real-time simulation speed, pauses on the final pose, and restarts the same trajectory when the user presses `R` or `Backspace`. Headless playback remains available for automated verification.
+
 The first increment requires playback to run without non-finite state or simulator failure. It does not set a tracking-error acceptance threshold until a baseline has been measured.
 
 ## Dependency-management decision

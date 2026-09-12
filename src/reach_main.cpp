@@ -22,6 +22,7 @@ struct Options {
   std::optional<Eigen::Vector3d> target;
   double duration_s = 2.0;
   bool playback = false;
+  bool visual = false;
   bool csv = false;
 };
 
@@ -34,6 +35,7 @@ void print_usage(const std::string_view executable) {
             << "  --robot PATH        SO-101 robot MJCF\n"
             << "  --scene PATH        MuJoCo scene used by --playback\n"
             << "  --playback          Track the joint trajectory in MuJoCo\n"
+            << "  --visual            Show real-time playback (implies --playback)\n"
             << "  --csv               Print every trajectory knot as CSV\n";
 }
 
@@ -110,6 +112,9 @@ std::expected<Options, std::string> parse_options(const int argc, char* argv[]) 
       options.scene = argv[index];
     } else if (argument == "--playback") {
       options.playback = true;
+    } else if (argument == "--visual") {
+      options.playback = true;
+      options.visual = true;
     } else if (argument == "--csv") {
       options.csv = true;
     } else if (argument == "--help" || argument == "-h") {
@@ -208,6 +213,14 @@ int main(int argc, char* argv[]) {
         << "\n"
         << "max_joint_tracking_error_rad=" << playback->max_joint_tracking_error_rad << "\n"
         << "playback_note=MuJoCo tracked position references; optimized torques were not sent\n";
+
+    if (options->visual) {
+      std::cout << "viewer_note=Close the window to exit; press R to replay the trajectory\n";
+      if (const auto visual = amp::TrajectoryPlayer::visualize(*trajectory, *simulation); !visual) {
+        std::cerr << "Visual playback error: " << visual.error() << "\n";
+        return EXIT_FAILURE;
+      }
+    }
   }
 
   return EXIT_SUCCESS;

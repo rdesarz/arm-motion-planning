@@ -40,5 +40,9 @@ cmd = "./build/pixi/so101_reach --target 0.31741606 -0.09770090 0.26459835"
 depends-on = ["build"]
 
 [tasks.playback-demo]
+cmd = "./build/pixi/so101_reach --target 0.31741606 -0.09770090 0.26459835 --visual"
+depends-on = ["build"]
+
+[tasks.playback-headless]
 cmd = "./build/pixi/so101_reach --target 0.31741606 -0.09770090 0.26459835 --playback"
 depends-on = ["build"]

@@ -43,9 +43,23 @@ The planner fails closed for invalid inputs, unavailable strategies, model misma
 
 ## MuJoCo playback
 
+Open the viewer and watch the canonical trajectory in real time:
+
 ```sh
 pixi run playback-demo
 ```
+
+For a custom target, add `--visual` to the reach command. The flag implies `--playback`:
+
+```sh
+pixi run ./build/pixi/so101_reach \
+  --target 0.31741606 -0.09770090 0.26459835 \
+  --duration 2.0 \
+  --q-start 0 0 0 0 0 0.25 \
+  --visual
+```
+
+The viewer plays at real-time simulation speed, pauses on the final pose, and restarts the trajectory when `R` or `Backspace` is pressed. Use `pixi run playback-headless` when no graphical display is available.
 
 Playback linearly resamples the planned joint positions at MuJoCo's timestep and reports Cartesian terminal tracking error and maximum joint tracking error. It sends position references to the current MuJoCo actuators; it does not execute Aligator's optimized torques and is not evidence of hardware readiness.
 

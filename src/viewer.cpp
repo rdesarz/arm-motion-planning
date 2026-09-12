@@ -6,13 +6,16 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace amp {
 namespace {
 
 struct ViewerState {
-  explicit ViewerState(Simulation& simulation) : simulation(simulation) {
+  ViewerState(Simulation& simulation, ViewerOptions viewer_options)
+      : simulation(simulation), viewer_options(std::move(viewer_options)) {
     mjv_defaultCamera(&camera);
     mjv_defaultOption(&options);
     mjv_defaultScene(&scene);
@@ -27,20 +30,33 @@ struct ViewerState {
   }
 
   Simulation& simulation;
+  ViewerOptions viewer_options;
   mjvCamera camera{};
   mjvOption options{};
   mjvScene scene{};
   mjrContext context{};
   bool paused = false;
+  bool completed = false;
   bool left_button = false;
   bool middle_button = false;
   bool right_button = false;
   double last_x = 0.0;
   double last_y = 0.0;
+  std::optional<std::string> error;
 };
 
 ViewerState& state_from(GLFWwindow* window) {
   return *static_cast<ViewerState*>(glfwGetWindowUserPointer(window));
+}
+
+std::expected<void, std::string> reset(ViewerState& state) {
+  state.completed = false;
+  state.paused = false;
+  if (state.viewer_options.on_reset) {
+    return state.viewer_options.on_reset(state.simulation);
+  }
+  state.simulation.reset();
+  return {};
 }
 
 void key_callback(GLFWwindow* window, int key, int, int action, int) {
@@ -54,7 +70,10 @@ void key_callback(GLFWwindow* window, int key, int, int action, int) {
   } else if (key == GLFW_KEY_SPACE) {
     state.paused = !state.paused;
   } else if (key == GLFW_KEY_BACKSPACE || key == GLFW_KEY_R) {
-    state.simulation.reset();
+    if (const auto result = reset(state); !result) {
+      state.error = result.error();
+      glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
   }
 }
 
@@ -109,13 +128,19 @@ void glfw_error_callback(int code, const char* description) {
 
 }  // namespace
 
-std::expected<void, std::string> run_viewer(Simulation& simulation) {
+std::expected<void, std::string> run_viewer(Simulation& simulation, ViewerOptions options) {
+  if (options.on_reset) {
+    if (const auto result = options.on_reset(simulation); !result) {
+      return std::unexpected(result.error());
+    }
+  }
+
   glfwSetErrorCallback(glfw_error_callback);
   if (glfwInit() != GLFW_TRUE) {
     return std::unexpected("GLFW initialization failed; is a graphical display available?");
   }
 
-  GLFWwindow* window = glfwCreateWindow(1200, 900, "SO-101 - MuJoCo", nullptr, nullptr);
+  GLFWwindow* window = glfwCreateWindow(1200, 900, options.title.c_str(), nullptr, nullptr);
   if (window == nullptr) {
     glfwTerminate();
     return std::unexpected("Could not create the MuJoCo viewer window");
@@ -124,7 +149,7 @@ std::expected<void, std::string> run_viewer(Simulation& simulation) {
   glfwMakeContextCurrent(window);
   glfwSwapInterval(1);
 
-  ViewerState state(simulation);
+  ViewerState state(simulation, std::move(options));
   glfwSetWindowUserPointer(window, &state);
   glfwSetKeyCallback(window, key_callback);
   glfwSetMouseButtonCallback(window, mouse_button_callback);
@@ -138,6 +163,19 @@ std::expected<void, std::string> run_viewer(Simulation& simulation) {
     if (!state.paused) {
       const mjtNum frame_start = simulation.data().time;
       while (simulation.data().time - frame_start < 1.0 / 60.0) {
+        if (state.viewer_options.before_step) {
+          const auto should_step = state.viewer_options.before_step(simulation);
+          if (!should_step) {
+            state.error = should_step.error();
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+            break;
+          }
+          if (!*should_step) {
+            state.completed = true;
+            state.paused = true;
+            break;
+          }
+        }
         simulation.step();
       }
     }
@@ -149,9 +187,11 @@ std::expected<void, std::string> run_viewer(Simulation& simulation) {
     mjr_render(viewport, &state.scene, &state.context);
 
     const std::string status =
-        "Time: " + std::to_string(simulation.data().time) + (state.paused ? "  [PAUSED]" : "");
+        "Time: " + std::to_string(simulation.data().time) +
+        (state.completed ? "  [COMPLETE - R TO REPLAY]" : (state.paused ? "  [PAUSED]" : ""));
     mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport,
-                "Space: pause   R/Backspace: reset   Esc: quit", status.c_str(), &state.context);
+                "Space: pause   R/Backspace: reset or replay   Esc: quit", status.c_str(),
+                &state.context);
 
     glfwSwapBuffers(window);
     glfwPollEvents();
@@ -163,6 +203,9 @@ std::expected<void, std::string> run_viewer(Simulation& simulation) {
 #if defined(__APPLE__) || defined(_WIN32)
   glfwTerminate();
 #endif
+  if (state.error) {
+    return std::unexpected(*state.error);
+  }
   return {};
 }
 

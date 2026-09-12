@@ -49,6 +49,8 @@ int main() {
   unlocked_gripper.knots[unlocked_gripper.knots.size() / 2].q[amp::kSo101GripperIndex] += 0.1;
   passed &= require(!amp::TrajectoryPlayer::play(unlocked_gripper, *simulation),
                     "playback must reject a trajectory that moves the locked gripper");
+  passed &= require(!amp::TrajectoryPlayer::visualize(unlocked_gripper, *simulation),
+                    "visual playback must validate the trajectory before opening a window");
 
   const auto playback = amp::TrajectoryPlayer::play(*trajectory, *simulation);
   if (!playback) {
