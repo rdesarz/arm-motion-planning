@@ -1,45 +1,60 @@
 # SO-101 motion planning
 
-A C++23 workspace for developing motion planners and controllers for the SO-101 arm. The first executable loads the curated SO-101 model from MuJoCo Menagerie and runs it either in an interactive MuJoCo viewer or headlessly.
+A C++23 experiment that generates a finite-duration SO-101 joint trajectory to a target `gripperframe` position. The first reach-planner strategy uses Aligator ProxDDP and Pinocchio; optional playback tracks the resulting position references in MuJoCo.
 
 ## Requirements
 
-- CMake 3.24 or newer
-- Conan 2.1 or newer
-- A compiler with C++23 support
-- An internet connection for the first dependency installation
-- OpenGL and a graphical display for the interactive viewer
+- [Pixi](https://pixi.sh/) 0.80 or newer
+- an internet connection for the first environment and robot-model download
+- OpenGL and a graphical display only for the interactive viewer
 
-Conan installs the pinned MuJoCo 3.7.0 and GLFW 3.4 packages. CMake downloads only the SO-101 runtime model files—not the complete Menagerie repository—and verifies them against hashes from an exact Menagerie revision.
+`pixi.lock` pins the complete Apple Silicon environment, including Aligator 0.19.0, Pinocchio 4.0.0, MuJoCo 3.7.0, GLFW 3.4, CMake, Ninja, and the C++ compiler. CMake downloads only the SO-101 runtime model files and verifies them against hashes from an exact MuJoCo Menagerie revision.
 
-## Build and run
+## Build and test
 
 ```sh
-# Required only when Conan has no default profile yet:
-conan profile detect
-
-conan install . --lockfile=conan.lock --build=missing \
-  -s build_type=Release \
-  -s compiler.cppstd=23
-cmake --preset conan-release
-cmake --build --preset conan-release -j
-./build/Release/so101_sim
+pixi run build
+pixi run test
 ```
 
-## clangd
+CMake writes the compilation database to `build/pixi/compile_commands.json`; `.clangd` already points there.
 
-CMake generates `build/Release/compile_commands.json`, containing the real C++23 compiler flags and Conan dependency paths. The repository's `.clangd` file directs clangd to that database, so editors require no machine-specific include-path configuration.
+## Generate a reach trajectory
 
-After changing CMake targets or dependencies, refresh the database with:
+Run the canonical reachable example:
 
 ```sh
-conan install . --lockfile=conan.lock --build=missing \
-  -s build_type=Release \
-  -s compiler.cppstd=23
-cmake --preset conan-release
+pixi run reach-demo
 ```
 
-Then restart clangd from VS Code's command palette if it does not reload the database automatically.
+Or provide a world-frame target in metres:
+
+```sh
+pixi run ./build/pixi/so101_reach \
+  --target 0.31741606 -0.09770090 0.26459835 \
+  --duration 2.0 \
+  --q-start 0 0 0 0 0 0.25 \
+  --csv
+```
+
+The default planner is selected through the project-owned `ReachPlanner` strategy interface. `--planner aligator` is explicit and is currently the only available implementation. A successful plan contains 101 position-and-velocity knots for the default two-second horizon and reports its terminal position error, terminal frame speed, joint-limit violation, and computation time.
+
+The planner fails closed for invalid inputs, unavailable strategies, model mismatches, solver failure, or violated postconditions. It does not silently return an invalid last iterate.
+
+## MuJoCo playback
+
+```sh
+pixi run playback-demo
+```
+
+Playback linearly resamples the planned joint positions at MuJoCo's timestep and reports Cartesian terminal tracking error and maximum joint tracking error. It sends position references to the current MuJoCo actuators; it does not execute Aligator's optimized torques and is not evidence of hardware readiness.
+
+## Simulator
+
+```sh
+pixi run sim
+pixi run headless
+```
 
 Viewer controls:
 
@@ -50,31 +65,21 @@ Viewer controls:
 - `R` or `Backspace`: reset
 - `Esc`: quit
 
-Run without creating a window:
+To use a local copy of the pinned robot model, configure CMake explicitly:
 
 ```sh
-./build/Release/so101_sim --headless --steps 1000
-ctest --preset conan-release --output-on-failure
-```
-
-Pass another MJCF scene as the final argument when needed:
-
-```sh
-./build/Release/so101_sim path/to/scene.xml
-```
-
-For an offline build, first ensure Conan's package cache is populated and point CMake at an existing `robotstudio_so101` directory:
-
-```sh
-conan install . --lockfile=conan.lock --no-remote \
-  -s build_type=Release \
-  -s compiler.cppstd=23
-cmake --preset conan-release \
+pixi run cmake -S . -B build/pixi -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
   -DAMP_SO101_MODEL_DIR=/path/to/mujoco_menagerie/robotstudio_so101
 ```
 
-## Current scope
+## Scope and architecture
 
-This establishes model loading, deterministic stepping, actuator-control access, reset behavior, basic rendering, and a headless test. It does not yet implement a motion planner, controller, collision-query API, or claim simulation-to-hardware fidelity. Those should be added as separate layers over `amp::Simulation`.
+`ReachPlanner` accepts a start joint configuration, a world-frame position target, and a duration. It returns a strategy-neutral `JointTrajectory`; Aligator and Pinocchio types remain private to the adapter. `TrajectoryPlayer` separately consumes the trajectory, so simulation does not depend on the planner.
+
+The current optimizer uses five arm joints and locks the gripper at its initial position. It enforces experimental velocity limits, the model's 2.94 Nm actuator evidence, and model joint limits. Collision avoidance, orientation targets, automatic duration optimization, online replanning, and hardware execution are not implemented.
+
+The full contract, acceptance thresholds, and class diagram are in [specification 001](specs/001-aligator-reach-trajectory.md).
 
 The SO-101 model is sourced from [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie/tree/main/robotstudio_so101) and is licensed under Apache-2.0. Its license is downloaded alongside the model assets.

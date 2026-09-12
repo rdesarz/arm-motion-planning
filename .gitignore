@@ -1,4 +1,5 @@
 /build/
+/.pixi/
 /cmake-build-*/
 /CMakeUserPresets.json
 /.vscode

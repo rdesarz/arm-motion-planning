@@ -138,6 +138,7 @@ Failure of any parity check blocks trajectory optimization.
 - Dynamics: Aligator `MultibodyFreeFwdDynamics` with identity actuation for the reduced five-joint Pinocchio model.
 - Discretization: semi-implicit Euler.
 - Initial horizon: `duration_s = 2.0 s`, `dt = 0.02 s`, and `N = 100`.
+- Resource bound: reject durations requiring more than 1000 integration intervals rather than allocating an unbounded problem.
 - Solver: `SolverProxDDP` with nonlinear rollout.
 - Initial guess: a rollout from repeated gravity-compensation torques at the initial configuration.
 
@@ -405,6 +406,8 @@ The test checks the target position, not equality with `q_reference`, because a 
 
 Set the target to the end-effector position at `q_start`. The planner must succeed and the maximum joint displacement must remain below a small documented tolerance.
 
+The first Aligator adapter uses `1e-3 rad` as that no-op displacement tolerance.
+
 ### Invalid requests
 
 Reject at least:
@@ -448,22 +451,22 @@ The initial manifest targets `osx-arm64` and constrains at least:
 | Package | Constraint | Reason |
 | --- | --- | --- |
 | `aligator` | `==0.19.0` | Packaged for `osx-arm64`; exact build recorded by `pixi.lock` |
-| `pinocchio` | `>=3.9,<4` | Matches Aligator's Pinocchio 3.9 feature set and avoids introducing Pinocchio 4 during the first experiment |
-| `libmujoco` | `==3.7.0` | Preserves the simulator version currently locked by Conan |
-| `glfw` | `==3.4` | Preserves the viewer version currently locked by Conan |
+| `pinocchio` | `==4.0.0` | Required by the packaged Aligator 0.19.0 `osx-arm64` build; the exact build is recorded by `pixi.lock` |
+| `libmujoco` | `==3.7.0` | Preserves the simulator version used by the previous Conan environment |
+| `glfw` | `==3.4` | Preserves the viewer version used by the previous Conan environment |
 | `cmake` | `>=3.24` | Preserves the repository's minimum build requirement |
 | `ninja` | compatible locked version | Provides a reproducible CMake build backend |
 | `cxx-compiler` | compatible locked version | Provides the compiler environment expected by conda-forge libraries |
 
 Python may be pinned if required to select an Aligator package variant, but Python is not part of the planner's runtime interface.
 
-Aligator `0.19.1` is the latest upstream release but is not currently packaged on conda-forge for `osx-arm64`. The experiment uses packaged `0.19.0` instead of adding a source-build path solely to obtain the patch release. Upgrading is a separate, tested dependency change.
+The experiment uses packaged Aligator `0.19.0` instead of adding a second source-build path. Its conda-forge `osx-arm64` build depends on Pinocchio 4.0.0, so the locked package graph takes precedence over the earlier Pinocchio 3.x assumption. Upgrading is a separate, tested dependency change.
 
 `pixi.toml` declares the environment and named tasks. `pixi.lock` is committed and is the reproducibility source of truth for exact package builds. Normal build and test instructions use `pixi run`; they must not depend on an activated global Conda environment.
 
 ### Migration gates
 
-Conan remains temporarily present only as a recovery path while Pixi parity is established. Migration proceeds in this order:
+The Conan-to-Pixi migration proceeds in this order:
 
 1. Add `pixi.toml`, resolve `pixi.lock`, and verify that the environment contains only native `osx-arm64` packages.
 2. Compile a minimal C++ executable and link the installed `aligator::aligator` target.
@@ -474,6 +477,8 @@ Conan remains temporarily present only as a recovery path while Pixi parity is e
 7. Remove `conanfile.txt`, `conan.lock`, and Conan-specific presets or documentation only after gates 1 through 6 pass.
 
 At no point may one executable link a mixture of Pixi/conda-forge and Conan variants of the same native libraries. If the existing simulator cannot be reproduced under Pixi, the migration stops and the failure is documented before another dependency arrangement is chosen.
+
+The implementation passed gates 1 through 6, after which the Conan manifest and lock were removed. Pixi is now the only supported dependency workflow.
 
 ## Deliverables
 
