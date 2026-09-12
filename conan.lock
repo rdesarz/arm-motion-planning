@@ -1,0 +1,17 @@
+{
+    "version": "0.5",
+    "requires": [
+        "tinyxml2/11.0.0#26881979c0366af3dcf3a9791a344f7c%1742232641.271",
+        "tinyobjloader/2.0.0-rc10#d34a46c931009cc6045094fcca6e5b4b%1751640564.209",
+        "qhull/8.0.2#7f8feda445c3a0929a12a571ff049177%1766510792.899",
+        "opengl/system#cfcf523b9d2bad75cbf377f56562634c%1762526044.744",
+        "mujoco/3.7.0#87b8a8daab72689e3fcc51b79072def8%1776246314.547",
+        "marchingcubecpp/0.0.0.cci.20260224#2c512a52bf0f96cfd0402ddf30978d72%1772175646.195",
+        "lodepng/cci.20230410#663415abcd943ea2cff7278b7ef510f0%1741857866.993",
+        "libccd/2.1#d78f3086a046560c6e7caa39ac5825ef%1770622475.909",
+        "glfw/3.4#41cc24c744dc4c80571f5dd10dcd9cda%1732635892.515"
+    ],
+    "build_requires": [],
+    "python_requires": [],
+    "config_requires": []
+}

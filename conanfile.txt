@@ -1,0 +1,13 @@
+[requires]
+mujoco/3.7.0
+glfw/3.4
+
+[options]
+mujoco/*:shared=True
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout
