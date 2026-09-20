@@ -41,6 +41,73 @@ A successful plan contains 101 position-and-velocity knots for the default two-s
 
 The planner fails closed for invalid inputs, model mismatches, solver failure, or violated postconditions. It does not silently return an invalid last iterate.
 
+## Planning workflow and optimization problem
+
+```mermaid
+flowchart TD
+    request["Reach request<br/>q_start, target_world_m, duration_s"]
+    load["Load and validate the SO-101 MJCF"]
+    reduce["Lock the gripper and build the<br/>five-joint Pinocchio arm model"]
+    problem["Build the finite-horizon<br/>Aligator optimal-control problem"]
+    guess["Initialize with a gravity-compensation rollout"]
+    solve["Solve with ProxDDP<br/>and nonlinear rollout"]
+    converged{"Solver converged?"}
+    validate["Recompute dynamics defects,<br/>limits, and terminal metrics"]
+    valid{"All postconditions satisfied?"}
+    error["Return PlanningError<br/>without a trajectory"]
+    trajectory["Return JointTrajectory<br/>with N + 1 validated knots"]
+    report["Print report or CSV"]
+    playback["Optional MuJoCo position-reference playback"]
+    viewer["Optional interactive viewer"]
+
+    request --> load --> reduce --> problem --> guess --> solve --> converged
+    converged -- No --> error
+    converged -- Yes --> validate --> valid
+    valid -- No --> error
+    valid -- Yes --> trajectory
+    trajectory --> report
+    trajectory --> playback --> viewer
+```
+
+Aligator optimizes the five arm joints; the gripper remains fixed at its requested initial position. At knot $k$, the state and control are
+
+$$
+x_k = \begin{bmatrix}q_k \\ v_k\end{bmatrix},
+\qquad u_k = \tau_k,
+$$
+
+where $q_k, v_k, \tau_k \in \mathbb{R}^5$. Joint acceleration $a(x_k, \tau_k)$ is computed by the same Pinocchio forward dynamics used by the semi-implicit Euler integrator. For $N$ stages, the solver minimizes
+
+$$
+\begin{aligned}
+\min_{x_{0:N},\,\tau_{0:N-1}}\quad
+&\sum_{k=0}^{N-1}
+\left(
+\lVert a(x_k,\tau_k)\rVert_{hI}^{2}
++ \lVert \tau_k\rVert_{10^{-3}hI}^{2}
+\right) \\
+&+ \lVert v_N\rVert_{10^3 I}^{2}
++ \lVert p_{ee}(q_N)-p_{target}\rVert_{10^5 I}^{2}
++ \lVert V_{ee}(x_N)\rVert_{10^3 I}^{2},
+\end{aligned}
+$$
+
+subject to
+
+$$
+\begin{aligned}
+x_0 &= [q_{start}, 0], \\
+x_{k+1} &= F_h(x_k, \tau_k), \\
+q_{min} \le q_k &\le q_{max} && k=0,\ldots,N-1, \\
+\lvert v_k \rvert &\le 4\ \mathrm{rad/s} && k=0,\ldots,N-1, \\
+\lvert \tau_k \rvert &\le 2.94\ \mathrm{N\,m} && k=0,\ldots,N-1.
+\end{aligned}
+$$
+
+Here, $F_h$ is the semi-implicit Euler discretization, $h = \text{duration}/N$, and $N$ is chosen near the nominal 20 ms timestep, with a hard limit of 1000 stages. The terminal terms drive the `gripperframe` position to the target while reducing terminal joint and frame velocity. Acceleration regularization discourages the optimizer from waiting and performing nearly all motion at the end of the horizon.
+
+Solver convergence alone is insufficient. Before returning a trajectory, the planner independently checks every knot, including the terminal state, and requires finite states and controls, final position error at most 5 mm, final frame speed at most 0.02 m/s, joint/velocity/effort violations at most $10^{-6}$, and maximum dynamics defect at most $10^{-5}$. The formulation is defined in [`aligator_reach_planner.cpp`](src/core/aligator_reach_planner.cpp); the complete behavioral contract is in [specification 001](specs/001-aligator-reach-trajectory.md).
+
 ## MuJoCo playback
 
 Open the viewer and watch the canonical trajectory in real time:
