@@ -6,7 +6,7 @@
 #include <memory>
 #include <string>
 
-#include "amp/trajectory.hpp"
+#include "amp/core/trajectory.hpp"
 
 namespace amp {
 

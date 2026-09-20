@@ -77,7 +77,7 @@ target_link_libraries(so101_sim PRIVATE amp::viewer)
 target_compile_features(so101_sim PRIVATE cxx_std_23)
 target_compile_definitions(so101_sim PRIVATE AMP_DEFAULT_SCENE_PATH="${AMP_SO101_SCENE}")
 
-add_executable(so101_reach src/core/reach_main.cpp)
+add_executable(so101_reach src/core/main.cpp)
 target_link_libraries(so101_reach PRIVATE amp::planning amp::playback amp::simulation)
 target_compile_features(so101_reach PRIVATE cxx_std_23)
 target_compile_definitions(

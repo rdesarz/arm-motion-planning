@@ -3,7 +3,7 @@
 #include <array>
 #include <vector>
 
-#include "amp/so101_model.hpp"
+#include "amp/core/so101_model.hpp"
 
 namespace amp {
 

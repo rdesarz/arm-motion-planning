@@ -1,4 +1,4 @@
-#include "amp/viewer.hpp"
+#include "amp/viewer/viewer.hpp"
 
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>

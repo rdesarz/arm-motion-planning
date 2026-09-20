@@ -1,4 +1,4 @@
-#include "amp/simulation.hpp"
+#include "amp/core/simulation.hpp"
 
 #include <cmath>
 #include <cstdlib>

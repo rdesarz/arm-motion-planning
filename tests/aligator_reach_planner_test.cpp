@@ -1,4 +1,4 @@
-#include "amp/aligator_reach_planner.hpp"
+#include "amp/core/aligator_reach_planner.hpp"
 
 #include <Eigen/Core>
 #include <algorithm>
@@ -10,7 +10,7 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/parsers/mjcf.hpp>
 
-#include "amp/so101_model.hpp"
+#include "amp/core/so101_model.hpp"
 
 namespace {
 

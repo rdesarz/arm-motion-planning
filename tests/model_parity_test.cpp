@@ -9,8 +9,8 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/parsers/mjcf.hpp>
 
-#include "amp/simulation.hpp"
-#include "amp/so101_model.hpp"
+#include "amp/core/simulation.hpp"
+#include "amp/core/so101_model.hpp"
 
 namespace {
 

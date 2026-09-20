@@ -3,7 +3,7 @@
 #include <functional>
 #include <string>
 
-#include "amp/simulation.hpp"
+#include "amp/core/simulation.hpp"
 
 namespace amp {
 

@@ -1,4 +1,4 @@
-#include "amp/trajectory_player.hpp"
+#include "amp/core/trajectory_player.hpp"
 
 #include <mujoco/mujoco.h>
 
@@ -8,8 +8,8 @@
 #include <memory>
 #include <utility>
 
-#include "amp/so101_model.hpp"
-#include "amp/viewer.hpp"
+#include "amp/core/so101_model.hpp"
+#include "amp/viewer/viewer.hpp"
 
 namespace amp {
 

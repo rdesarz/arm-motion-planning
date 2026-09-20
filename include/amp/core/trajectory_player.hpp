@@ -3,8 +3,8 @@
 #include <expected>
 #include <string>
 
-#include "amp/simulation.hpp"
-#include "amp/trajectory.hpp"
+#include "amp/core/simulation.hpp"
+#include "amp/core/trajectory.hpp"
 
 namespace amp {
 

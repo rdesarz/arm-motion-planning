@@ -4,8 +4,8 @@
 #include <iostream>
 #include <string_view>
 
-#include "amp/simulation.hpp"
-#include "amp/viewer.hpp"
+#include "amp/core/simulation.hpp"
+#include "amp/viewer/viewer.hpp"
 
 namespace {
 

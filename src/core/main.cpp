@@ -8,9 +8,9 @@
 #include <string>
 #include <string_view>
 
-#include "amp/aligator_reach_planner.hpp"
-#include "amp/simulation.hpp"
-#include "amp/trajectory_player.hpp"
+#include "amp/core/aligator_reach_planner.hpp"
+#include "amp/core/simulation.hpp"
+#include "amp/core/trajectory_player.hpp"
 
 namespace {
 

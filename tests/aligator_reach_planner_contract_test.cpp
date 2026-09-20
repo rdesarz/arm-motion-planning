@@ -5,7 +5,7 @@
 #include <iostream>
 #include <limits>
 
-#include "amp/aligator_reach_planner.hpp"
+#include "amp/core/aligator_reach_planner.hpp"
 
 namespace {
 
