@@ -1,4 +1,4 @@
-# SO-101 motion planning
+# so101-trajectory-planning
 
 A C++23 experiment that uses Aligator ProxDDP and Pinocchio to generate a finite-duration SO-101 joint trajectory to a target `gripperframe` position. Optional playback tracks the resulting position references in MuJoCo.
 

@@ -3,9 +3,9 @@
 #include <functional>
 #include <string>
 
-#include "amp/core/simulation.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
 
-namespace amp {
+namespace so101_traj_planner {
 
 struct ViewerOptions {
   std::string title = "SO-101 - MuJoCo";
@@ -17,4 +17,4 @@ struct ViewerOptions {
 // Returns an error string if a window or rendering context cannot be created.
 std::expected<void, std::string> run_viewer(Simulation& simulation, ViewerOptions options = {});
 
-}  // namespace amp
+}  // namespace so101_traj_planner

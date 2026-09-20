@@ -1,4 +1,4 @@
-#include "amp/viewer/viewer.hpp"
+#include "so101_traj_planner/viewer/viewer.hpp"
 
 #include <GLFW/glfw3.h>
 #include <mujoco/mujoco.h>
@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-namespace amp {
+namespace so101_traj_planner {
 namespace {
 
 struct ViewerState {
@@ -208,4 +208,4 @@ std::expected<void, std::string> run_viewer(Simulation& simulation, ViewerOption
   return {};
 }
 
-}  // namespace amp
+}  // namespace so101_traj_planner

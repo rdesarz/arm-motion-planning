@@ -1,11 +1,13 @@
 #pragma once
 
+// std
 #include <array>
 #include <vector>
 
-#include "amp/core/so101_model.hpp"
+// so101_traj_planner
+#include "so101_traj_planner/core/so101_model.hpp"
 
-namespace amp {
+namespace so101_traj_planner {
 
 using JointVector = std::array<double, kSo101JointCount>;
 
@@ -27,4 +29,4 @@ struct JointTrajectory {
   PlanningReport report;
 };
 
-}  // namespace amp
+}  // namespace so101_traj_planner

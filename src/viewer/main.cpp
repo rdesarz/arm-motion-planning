@@ -4,8 +4,8 @@
 #include <iostream>
 #include <string_view>
 
-#include "amp/core/simulation.hpp"
-#include "amp/viewer/viewer.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
+#include "so101_traj_planner/viewer/viewer.hpp"
 
 namespace {
 
@@ -59,7 +59,7 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
-  auto simulation = amp::Simulation::load(options->scene);
+  auto simulation = so101_traj_planner::Simulation::load(options->scene);
   if (!simulation) {
     std::cerr << "Error: " << simulation.error() << "\n";
     return EXIT_FAILURE;
@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
     return EXIT_SUCCESS;
   }
 
-  if (const auto result = amp::run_viewer(*simulation); !result) {
+  if (const auto result = so101_traj_planner::run_viewer(*simulation); !result) {
     std::cerr << "Error: " << result.error() << "\n";
     return EXIT_FAILURE;
   }

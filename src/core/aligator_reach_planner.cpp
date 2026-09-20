@@ -1,4 +1,4 @@
-#include "amp/core/aligator_reach_planner.hpp"
+#include "so101_traj_planner/core/aligator_reach_planner.hpp"
 
 #include <Eigen/Core>
 #include <algorithm>
@@ -30,9 +30,9 @@
 #include <vector>
 
 #include "aligator_validation.hpp"
-#include "amp/core/so101_model.hpp"
+#include "so101_traj_planner/core/so101_model.hpp"
 
-namespace amp {
+namespace so101_traj_planner {
 
 namespace {
 
@@ -466,4 +466,4 @@ std::expected<AligatorReachPlanner, PlanningError> AligatorReachPlanner::load(
   return AligatorReachPlanner(std::make_unique<Impl>(std::move(model)));
 }
 
-}  // namespace amp
+}  // namespace so101_traj_planner

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <string>
 
-namespace amp::detail {
+namespace so101_traj_planner::detail {
 
 std::optional<std::string> validate_aligator_metrics(const AligatorValidationMetrics& metrics) {
   if (std::isfinite(metrics.final_position_error_m) &&
@@ -30,4 +30,4 @@ std::optional<std::string> validate_aligator_metrics(const AligatorValidationMet
          ", dynamics_defect=" + std::to_string(metrics.max_dynamics_defect) + ")";
 }
 
-}  // namespace amp::detail
+}  // namespace so101_traj_planner::detail

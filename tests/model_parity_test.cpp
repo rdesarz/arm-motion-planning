@@ -9,8 +9,8 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/parsers/mjcf.hpp>
 
-#include "amp/core/simulation.hpp"
-#include "amp/core/so101_model.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
+#include "so101_traj_planner/core/so101_model.hpp"
 
 namespace {
 
@@ -21,13 +21,14 @@ bool require(const bool condition, const char* message) {
   return condition;
 }
 
-bool check_configuration(amp::Simulation& simulation, const pinocchio::Model& pin_model,
-                         pinocchio::Data& pin_data, const Eigen::VectorXd& q) {
+bool check_configuration(so101_traj_planner::Simulation& simulation,
+                         const pinocchio::Model& pin_model, pinocchio::Data& pin_data,
+                         const Eigen::VectorXd& q) {
   auto& mj_model = simulation.model();
   auto& mj_data = simulation.data();
 
-  for (std::size_t index = 0; index < amp::kSo101JointNames.size(); ++index) {
-    const auto name = std::string(amp::kSo101JointNames[index]);
+  for (std::size_t index = 0; index < so101_traj_planner::kSo101JointNames.size(); ++index) {
+    const auto name = std::string(so101_traj_planner::kSo101JointNames[index]);
     const int mj_joint = mj_name2id(&mj_model, mjOBJ_JOINT, name.c_str());
     if (mj_joint < 0) {
       return false;
@@ -39,8 +40,9 @@ bool check_configuration(amp::Simulation& simulation, const pinocchio::Model& pi
   pinocchio::forwardKinematics(pin_model, pin_data, q);
   pinocchio::updateFramePlacements(pin_model, pin_data);
 
-  const int mj_site = mj_name2id(&mj_model, mjOBJ_SITE, amp::kSo101EndEffectorFrame.data());
-  const auto pin_frame = pin_model.getFrameId(amp::kSo101EndEffectorFrame.data());
+  const int mj_site =
+      mj_name2id(&mj_model, mjOBJ_SITE, so101_traj_planner::kSo101EndEffectorFrame.data());
+  const auto pin_frame = pin_model.getFrameId(so101_traj_planner::kSo101EndEffectorFrame.data());
   if (mj_site < 0 || pin_frame >= pin_model.nframes) {
     return false;
   }
@@ -55,7 +57,7 @@ bool check_configuration(amp::Simulation& simulation, const pinocchio::Model& pi
 int main() {
   bool passed = true;
 
-  auto simulation = amp::Simulation::load(AMP_TEST_SCENE_PATH);
+  auto simulation = so101_traj_planner::Simulation::load(AMP_TEST_SCENE_PATH);
   passed &= require(simulation.has_value(), "MuJoCo must load the pinned SO-101 scene");
   if (!simulation) {
     std::cerr << simulation.error() << "\n";
@@ -71,37 +73,37 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  passed &= require(pin_model.nq == static_cast<int>(amp::kSo101JointCount),
+  passed &= require(pin_model.nq == static_cast<int>(so101_traj_planner::kSo101JointCount),
                     "Pinocchio must expose six generalized coordinates");
-  passed &= require(pin_model.nv == static_cast<int>(amp::kSo101JointCount),
+  passed &= require(pin_model.nv == static_cast<int>(so101_traj_planner::kSo101JointCount),
                     "Pinocchio must expose six velocities");
   passed &= require(pin_model.nqs.front() == 0 && pin_model.nvs.front() == 0,
                     "Pinocchio must use a fixed universe joint");
-  passed &= require(pin_model.existFrame(amp::kSo101EndEffectorFrame.data()),
+  passed &= require(pin_model.existFrame(so101_traj_planner::kSo101EndEffectorFrame.data()),
                     "Pinocchio must expose the MuJoCo gripperframe site as a frame");
 
   const auto& mj_model = simulation->model();
-  passed &= require(mj_model.njnt == static_cast<int>(amp::kSo101JointCount),
+  passed &= require(mj_model.njnt == static_cast<int>(so101_traj_planner::kSo101JointCount),
                     "MuJoCo must expose exactly the six canonical joints");
   for (int joint = 0; joint < mj_model.njnt; ++joint) {
     passed &= require(mj_model.jnt_type[joint] == mjJNT_HINGE,
                       "MuJoCo must use six hinge joints and no floating base");
   }
-  passed &= require(mj_model.nu >= static_cast<int>(amp::kSo101ArmJointCount),
+  passed &= require(mj_model.nu >= static_cast<int>(so101_traj_planner::kSo101ArmJointCount),
                     "MuJoCo must expose an actuator for every planned arm joint");
-  for (int actuator = 0;
-       actuator < static_cast<int>(amp::kSo101ArmJointCount) && actuator < mj_model.nu;
+  for (int actuator = 0; actuator < static_cast<int>(so101_traj_planner::kSo101ArmJointCount) &&
+                         actuator < mj_model.nu;
        ++actuator) {
     passed &= require(mj_model.actuator_forcelimited[actuator] != 0,
                       "planned arm actuators must enforce effort limits");
     passed &= require(std::abs(mj_model.actuator_forcerange[2 * actuator] +
-                               amp::kSo101ActuatorEffortLimitNm) <= 1e-9 &&
+                               so101_traj_planner::kSo101ActuatorEffortLimitNm) <= 1e-9 &&
                           std::abs(mj_model.actuator_forcerange[2 * actuator + 1] -
-                                   amp::kSo101ActuatorEffortLimitNm) <= 1e-9,
+                                   so101_traj_planner::kSo101ActuatorEffortLimitNm) <= 1e-9,
                       "MuJoCo effort limits must match the planning contract");
   }
-  for (std::size_t index = 0; index < amp::kSo101JointNames.size(); ++index) {
-    const auto name = std::string(amp::kSo101JointNames[index]);
+  for (std::size_t index = 0; index < so101_traj_planner::kSo101JointNames.size(); ++index) {
+    const auto name = std::string(so101_traj_planner::kSo101JointNames[index]);
     const int mj_joint = mj_name2id(&mj_model, mjOBJ_JOINT, name.c_str());
     passed &= require(mj_joint >= 0, "MuJoCo joint mapping must be complete");
     passed &= require(pin_model.existJointName(name), "Pinocchio joint mapping must be complete");

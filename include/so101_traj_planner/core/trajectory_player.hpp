@@ -3,10 +3,10 @@
 #include <expected>
 #include <string>
 
-#include "amp/core/simulation.hpp"
-#include "amp/core/trajectory.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
+#include "so101_traj_planner/core/trajectory.hpp"
 
-namespace amp {
+namespace so101_traj_planner {
 
 struct PlaybackReport {
   double planned_terminal_error_m;
@@ -24,4 +24,4 @@ class TrajectoryPlayer {
                                                                   Simulation& simulation);
 };
 
-}  // namespace amp
+}  // namespace so101_traj_planner

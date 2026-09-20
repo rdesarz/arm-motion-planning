@@ -8,16 +8,16 @@
 #include <string>
 #include <string_view>
 
-#include "amp/core/aligator_reach_planner.hpp"
-#include "amp/core/simulation.hpp"
-#include "amp/core/trajectory_player.hpp"
+#include "so101_traj_planner/core/aligator_reach_planner.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
+#include "so101_traj_planner/core/trajectory_player.hpp"
 
 namespace {
 
 struct Options {
   std::filesystem::path robot_mjcf = AMP_DEFAULT_ROBOT_PATH;
   std::filesystem::path scene = AMP_DEFAULT_SCENE_PATH;
-  amp::JointVector q_start = {0.0, 0.0, 0.0, 0.0, 0.0, 0.25};
+  so101_traj_planner::JointVector q_start = {0.0, 0.0, 0.0, 0.0, 0.0, 0.25};
   std::optional<Eigen::Vector3d> target;
   double duration_s = 2.0;
   bool playback = false;
@@ -121,17 +121,17 @@ std::expected<Options, std::string> parse_options(const int argc, char* argv[]) 
   return options;
 }
 
-std::string_view error_code_name(const amp::PlanningErrorCode code) {
+std::string_view error_code_name(const so101_traj_planner::PlanningErrorCode code) {
   switch (code) {
-    case amp::PlanningErrorCode::invalid_request:
+    case so101_traj_planner::PlanningErrorCode::invalid_request:
       return "invalid_request";
-    case amp::PlanningErrorCode::model_mismatch:
+    case so101_traj_planner::PlanningErrorCode::model_mismatch:
       return "model_mismatch";
-    case amp::PlanningErrorCode::frame_missing:
+    case so101_traj_planner::PlanningErrorCode::frame_missing:
       return "frame_missing";
-    case amp::PlanningErrorCode::planning_failed:
+    case so101_traj_planner::PlanningErrorCode::planning_failed:
       return "planning_failed";
-    case amp::PlanningErrorCode::validation_failed:
+    case so101_traj_planner::PlanningErrorCode::validation_failed:
       return "validation_failed";
   }
   return "unknown";
@@ -147,14 +147,14 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
-  auto planner = amp::AligatorReachPlanner::load(options->robot_mjcf);
+  auto planner = so101_traj_planner::AligatorReachPlanner::load(options->robot_mjcf);
   if (!planner) {
     std::cerr << "Planning error [" << error_code_name(planner.error().code)
               << "]: " << planner.error().message << "\n";
     return EXIT_FAILURE;
   }
 
-  const amp::ReachRequest request{
+  const so101_traj_planner::ReachRequest request{
       .q_start = options->q_start,
       .target_world_m = *options->target,
       .duration_s = options->duration_s,
@@ -187,12 +187,12 @@ int main(int argc, char* argv[]) {
   }
 
   if (options->playback) {
-    auto simulation = amp::Simulation::load(options->scene);
+    auto simulation = so101_traj_planner::Simulation::load(options->scene);
     if (!simulation) {
       std::cerr << "Playback error: " << simulation.error() << "\n";
       return EXIT_FAILURE;
     }
-    const auto playback = amp::TrajectoryPlayer::play(*trajectory, *simulation);
+    const auto playback = so101_traj_planner::TrajectoryPlayer::play(*trajectory, *simulation);
     if (!playback) {
       std::cerr << "Playback error: " << playback.error() << "\n";
       return EXIT_FAILURE;
@@ -205,7 +205,9 @@ int main(int argc, char* argv[]) {
 
     if (options->visual) {
       std::cout << "viewer_note=Close the window to exit; press R to replay the trajectory\n";
-      if (const auto visual = amp::TrajectoryPlayer::visualize(*trajectory, *simulation); !visual) {
+      if (const auto visual =
+              so101_traj_planner::TrajectoryPlayer::visualize(*trajectory, *simulation);
+          !visual) {
         std::cerr << "Visual playback error: " << visual.error() << "\n";
         return EXIT_FAILURE;
       }

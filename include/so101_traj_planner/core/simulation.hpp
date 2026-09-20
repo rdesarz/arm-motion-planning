@@ -9,7 +9,7 @@
 #include <span>
 #include <string>
 
-namespace amp {
+namespace so101_traj_planner {
 
 class Simulation {
  public:
@@ -45,4 +45,4 @@ class Simulation {
   std::filesystem::path scene_path_;
 };
 
-}  // namespace amp
+}  // namespace so101_traj_planner

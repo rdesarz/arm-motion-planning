@@ -1,4 +1,4 @@
-#include "amp/core/simulation.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -19,11 +19,11 @@ bool require(const bool condition, const char* message) {
 int main() {
   bool passed = true;
 
-  const auto missing = amp::Simulation::load(
+  const auto missing = so101_traj_planner::Simulation::load(
       std::filesystem::path(AMP_TEST_SCENE_PATH).parent_path() / "does-not-exist.xml");
   passed &= require(!missing.has_value(), "a missing scene must return an error");
 
-  auto simulation = amp::Simulation::load(AMP_TEST_SCENE_PATH);
+  auto simulation = so101_traj_planner::Simulation::load(AMP_TEST_SCENE_PATH);
   passed &= require(simulation.has_value(), "the pinned SO-101 scene must load");
   if (!simulation) {
     std::cerr << simulation.error() << "\n";

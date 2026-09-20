@@ -1,12 +1,12 @@
-#include "amp/core/trajectory_player.hpp"
+#include "so101_traj_planner/core/trajectory_player.hpp"
 
 #include <Eigen/Core>
 #include <cstdlib>
 #include <iostream>
 
-#include "amp/core/aligator_reach_planner.hpp"
-#include "amp/core/simulation.hpp"
-#include "amp/core/so101_model.hpp"
+#include "so101_traj_planner/core/aligator_reach_planner.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
+#include "so101_traj_planner/core/so101_model.hpp"
 
 namespace {
 
@@ -20,13 +20,13 @@ bool require(const bool condition, const char* message) {
 }  // namespace
 
 int main() {
-  auto planner = amp::AligatorReachPlanner::load(AMP_TEST_ROBOT_PATH);
+  auto planner = so101_traj_planner::AligatorReachPlanner::load(AMP_TEST_ROBOT_PATH);
   if (!planner) {
     std::cerr << "FAILED: " << planner.error().message << "\n";
     return EXIT_FAILURE;
   }
 
-  const amp::ReachRequest request{
+  const so101_traj_planner::ReachRequest request{
       .q_start = {0.0, 0.0, 0.0, 0.0, 0.0, 0.25},
       .target_world_m = Eigen::Vector3d{0.31741606, -0.09770090, 0.26459835},
       .duration_s = 2.0,
@@ -37,7 +37,7 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  auto simulation = amp::Simulation::load(AMP_TEST_SCENE_PATH);
+  auto simulation = so101_traj_planner::Simulation::load(AMP_TEST_SCENE_PATH);
   if (!simulation) {
     std::cerr << "FAILED: " << simulation.error() << "\n";
     return EXIT_FAILURE;
@@ -45,13 +45,14 @@ int main() {
 
   bool passed = true;
   auto unlocked_gripper = *trajectory;
-  unlocked_gripper.knots[unlocked_gripper.knots.size() / 2].q[amp::kSo101GripperIndex] += 0.1;
-  passed &= require(!amp::TrajectoryPlayer::play(unlocked_gripper, *simulation),
+  unlocked_gripper.knots[unlocked_gripper.knots.size() / 2]
+      .q[so101_traj_planner::kSo101GripperIndex] += 0.1;
+  passed &= require(!so101_traj_planner::TrajectoryPlayer::play(unlocked_gripper, *simulation),
                     "playback must reject a trajectory that moves the locked gripper");
-  passed &= require(!amp::TrajectoryPlayer::visualize(unlocked_gripper, *simulation),
+  passed &= require(!so101_traj_planner::TrajectoryPlayer::visualize(unlocked_gripper, *simulation),
                     "visual playback must validate the trajectory before opening a window");
 
-  const auto playback = amp::TrajectoryPlayer::play(*trajectory, *simulation);
+  const auto playback = so101_traj_planner::TrajectoryPlayer::play(*trajectory, *simulation);
   if (!playback) {
     std::cerr << "FAILED: " << playback.error() << "\n";
     return EXIT_FAILURE;

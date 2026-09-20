@@ -1,10 +1,10 @@
-#include "amp/core/simulation.hpp"
+#include "so101_traj_planner/core/simulation.hpp"
 
 #include <array>
 #include <system_error>
 #include <utility>
 
-namespace amp {
+namespace so101_traj_planner {
 
 void Simulation::ModelDeleter::operator()(mjModel* model) const noexcept { mj_deleteModel(model); }
 
@@ -58,4 +58,4 @@ std::span<mjtNum> Simulation::controls() noexcept {
   return {data_->ctrl, static_cast<std::size_t>(model_->nu)};
 }
 
-}  // namespace amp
+}  // namespace so101_traj_planner

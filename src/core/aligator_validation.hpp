@@ -3,7 +3,7 @@
 #include <optional>
 #include <string>
 
-namespace amp::detail {
+namespace so101_traj_planner::detail {
 
 inline constexpr double kFinalPositionToleranceM = 0.005;
 inline constexpr double kFinalFrameSpeedToleranceMps = 0.02;
@@ -24,4 +24,4 @@ struct AligatorValidationMetrics {
 [[nodiscard]] std::optional<std::string> validate_aligator_metrics(
     const AligatorValidationMetrics& metrics);
 
-}  // namespace amp::detail
+}  // namespace so101_traj_planner::detail

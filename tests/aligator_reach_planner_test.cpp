@@ -1,4 +1,4 @@
-#include "amp/core/aligator_reach_planner.hpp"
+#include "so101_traj_planner/core/aligator_reach_planner.hpp"
 
 #include <Eigen/Core>
 #include <algorithm>
@@ -10,7 +10,7 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/parsers/mjcf.hpp>
 
-#include "amp/core/so101_model.hpp"
+#include "so101_traj_planner/core/so101_model.hpp"
 
 namespace {
 
@@ -22,18 +22,19 @@ bool require(const bool condition, const char* message) {
 }
 
 Eigen::Vector3d end_effector_position(const pinocchio::Model& model, pinocchio::Data& data,
-                                      const amp::JointVector& configuration) {
+                                      const so101_traj_planner::JointVector& configuration) {
   const Eigen::Map<const Eigen::VectorXd> q(configuration.data(), configuration.size());
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
-  return data.oMf[model.getFrameId(amp::kSo101EndEffectorFrame.data())].translation();
+  return data.oMf[model.getFrameId(so101_traj_planner::kSo101EndEffectorFrame.data())]
+      .translation();
 }
 
-bool valid_common_trajectory(const amp::JointTrajectory& trajectory,
-                             const amp::ReachRequest& request) {
-  constexpr std::array<double, amp::kSo101JointCount> lower_limits = {
+bool valid_common_trajectory(const so101_traj_planner::JointTrajectory& trajectory,
+                             const so101_traj_planner::ReachRequest& request) {
+  constexpr std::array<double, so101_traj_planner::kSo101JointCount> lower_limits = {
       -1.91986, -1.7453293, -1.69, -1.658063, -2.7438473, -0.174533};
-  constexpr std::array<double, amp::kSo101JointCount> upper_limits = {
+  constexpr std::array<double, so101_traj_planner::kSo101JointCount> upper_limits = {
       1.91986, 1.7453293, 1.69, 1.658063, 2.7438473, 1.7453292};
   bool passed = true;
   passed &= require(trajectory.knots.size() == 101, "a two-second plan must contain 101 knots");
@@ -64,10 +65,10 @@ bool valid_common_trajectory(const amp::JointTrajectory& trajectory,
                             value.q[joint] <= upper_limits[joint] + 1e-6,
                         "every returned joint position must satisfy its model limit");
     }
-    passed &= require(std::abs(value.q[amp::kSo101GripperIndex] -
-                               request.q_start[amp::kSo101GripperIndex]) <= 1e-12,
+    passed &= require(std::abs(value.q[so101_traj_planner::kSo101GripperIndex] -
+                               request.q_start[so101_traj_planner::kSo101GripperIndex]) <= 1e-12,
                       "the gripper position must remain locked");
-    passed &= require(std::abs(value.velocity[amp::kSo101GripperIndex]) <= 1e-12,
+    passed &= require(std::abs(value.velocity[so101_traj_planner::kSo101GripperIndex]) <= 1e-12,
                       "the gripper velocity must remain zero");
   }
   for (std::size_t joint = 0; joint < request.q_start.size(); ++joint) {
@@ -89,14 +90,14 @@ int main() {
   }
   pinocchio::Data data(model);
 
-  auto planner = amp::AligatorReachPlanner::load(AMP_TEST_ROBOT_PATH);
+  auto planner = so101_traj_planner::AligatorReachPlanner::load(AMP_TEST_ROBOT_PATH);
   if (!planner) {
     std::cerr << "FAILED: " << planner.error().message << "\n";
     return EXIT_FAILURE;
   }
 
-  const amp::JointVector q_reference = {0.35, -0.45, 0.55, -0.30, 0.40, 0.25};
-  const amp::ReachRequest request{
+  const so101_traj_planner::JointVector q_reference = {0.35, -0.45, 0.55, -0.30, 0.40, 0.25};
+  const so101_traj_planner::ReachRequest request{
       .q_start = {0.0, 0.0, 0.0, 0.0, 0.0, 0.25},
       .target_world_m = end_effector_position(model, data, q_reference),
       .duration_s = 2.0,
@@ -112,7 +113,7 @@ int main() {
   double terminal_displacement_squared = 0.0;
   const auto& midpoint = reachable->knots[reachable->knots.size() / 2];
   const auto& terminal = reachable->knots.back();
-  for (std::size_t joint = 0; joint < amp::kSo101ArmJointCount; ++joint) {
+  for (std::size_t joint = 0; joint < so101_traj_planner::kSo101ArmJointCount; ++joint) {
     const double midpoint_displacement = midpoint.q[joint] - request.q_start[joint];
     const double terminal_displacement = terminal.q[joint] - request.q_start[joint];
     midpoint_displacement_squared += midpoint_displacement * midpoint_displacement;
@@ -123,7 +124,7 @@ int main() {
   passed &= require(midpoint_displacement >= 0.1 * terminal_displacement,
                     "a reachable plan must not postpone nearly all motion until the horizon end");
 
-  const amp::ReachRequest no_op_request{
+  const so101_traj_planner::ReachRequest no_op_request{
       .q_start = request.q_start,
       .target_world_m = end_effector_position(model, data, request.q_start),
       .duration_s = 2.0,
@@ -135,7 +136,7 @@ int main() {
     passed &= valid_common_trajectory(*no_op, no_op_request);
     double maximum_displacement = 0.0;
     for (const auto& knot : no_op->knots) {
-      for (std::size_t joint = 0; joint < amp::kSo101ArmJointCount; ++joint) {
+      for (std::size_t joint = 0; joint < so101_traj_planner::kSo101ArmJointCount; ++joint) {
         maximum_displacement =
             std::max(maximum_displacement, std::abs(knot.q[joint] - no_op_request.q_start[joint]));
       }
@@ -154,9 +155,10 @@ int main() {
   const auto unreachable = planner->plan(unreachable_request);
   passed &= require(!unreachable, "an unreachable target must fail closed");
   if (!unreachable) {
-    passed &= require(unreachable.error().code == amp::PlanningErrorCode::planning_failed ||
-                          unreachable.error().code == amp::PlanningErrorCode::validation_failed,
-                      "an unreachable target must return a planning or validation error");
+    passed &= require(
+        unreachable.error().code == so101_traj_planner::PlanningErrorCode::planning_failed ||
+            unreachable.error().code == so101_traj_planner::PlanningErrorCode::validation_failed,
+        "an unreachable target must return a planning or validation error");
   }
 
   return passed ? EXIT_SUCCESS : EXIT_FAILURE;

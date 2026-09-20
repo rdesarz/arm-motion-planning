@@ -182,7 +182,7 @@ There is deliberately no strategy interface or factory while Aligator is the onl
 The reusable result type is named `JointTrajectory`, not `ReachTrajectory`. Reaching is how the trajectory is requested; playback and future controllers only need the resulting time-indexed joint motion.
 
 ```cpp
-namespace amp {
+namespace so101_traj_planner {
 
 using JointVector = std::array<double, 6>;
 
@@ -241,12 +241,12 @@ class AligatorReachPlanner {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace amp
+}  // namespace so101_traj_planner
 ```
 
 The public interface must not expose Aligator solver objects, Aligator residuals, Pinocchio models, optimized torques, dynamics defects, or numerical cost weights. The planner validates its torque and dynamics results internally before constructing a successful result.
 
-`amp::Simulation` remains independent of Aligator. Playback consumes `JointTrajectory` through a separate project-owned module rather than adding planner responsibilities to the simulation module.
+`so101_traj_planner::Simulation` remains independent of Aligator. Playback consumes `JointTrajectory` through a separate project-owned module rather than adding planner responsibilities to the simulation module.
 
 ### Class diagram
 

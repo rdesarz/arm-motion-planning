@@ -1,7 +1,7 @@
 [workspace]
-name = "arm-motion-planning"
+name = "so101-trajectory-planning"
 version = "0.1.0"
-description = "Motion planning and control experiments for the SO-101 arm"
+description = "Trajectory planning experiments for the SO-101 arm"
 channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 

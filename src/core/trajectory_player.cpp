@@ -1,4 +1,4 @@
-#include "amp/core/trajectory_player.hpp"
+#include "so101_traj_planner/core/trajectory_player.hpp"
 
 #include <mujoco/mujoco.h>
 
@@ -8,10 +8,10 @@
 #include <memory>
 #include <utility>
 
-#include "amp/core/so101_model.hpp"
-#include "amp/viewer/viewer.hpp"
+#include "so101_traj_planner/core/so101_model.hpp"
+#include "so101_traj_planner/viewer/viewer.hpp"
 
-namespace amp {
+namespace so101_traj_planner {
 
 namespace {
 
@@ -231,4 +231,4 @@ std::expected<void, std::string> TrajectoryPlayer::visualize(const JointTrajecto
   return run_viewer(simulation, std::move(options));
 }
 
-}  // namespace amp
+}  // namespace so101_traj_planner

@@ -6,9 +6,9 @@
 #include <memory>
 #include <string>
 
-#include "amp/core/trajectory.hpp"
+#include "so101_traj_planner/core/trajectory.hpp"
 
-namespace amp {
+namespace so101_traj_planner {
 
 struct ReachRequest {
   JointVector q_start;
@@ -50,4 +50,4 @@ class AligatorReachPlanner {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace amp
+}  // namespace so101_traj_planner
