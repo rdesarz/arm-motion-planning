@@ -1,0 +1,48 @@
+[workspace]
+name = "so101-trajectory-planning"
+version = "0.1.0"
+description = "Trajectory planning experiments for the SO-101 arm"
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+aligator = "==0.19.0"
+cmake = ">=3.24,<5"
+cxx-compiler = "*"
+glfw = "==3.4"
+libmujoco = "==3.7.0"
+ninja = ">=1.12,<2"
+pinocchio = "==4.0.0"
+pkg-config = "*"
+python = "3.12.*"
+
+[tasks.configure]
+cmd = "cmake -S . -B build/pixi -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$CONDA_PREFIX"
+
+[tasks.build]
+cmd = "cmake --build build/pixi -j"
+depends-on = ["configure"]
+
+[tasks.test]
+cmd = "ctest --test-dir build/pixi --output-on-failure"
+depends-on = ["build"]
+
+[tasks.sim]
+cmd = "./build/pixi/so101_sim"
+depends-on = ["build"]
+
+[tasks.headless]
+cmd = "./build/pixi/so101_sim --headless --steps 1000"
+depends-on = ["build"]
+
+[tasks.reach-demo]
+cmd = "./build/pixi/so101_reach --target 0.31741606 -0.09770090 0.26459835"
+depends-on = ["build"]
+
+[tasks.playback-demo]
+cmd = "./build/pixi/so101_reach --target 0.31741606 -0.09770090 0.26459835 --visual"
+depends-on = ["build"]
+
+[tasks.playback-headless]
+cmd = "./build/pixi/so101_reach --target 0.31741606 -0.09770090 0.26459835 --playback"
+depends-on = ["build"]
