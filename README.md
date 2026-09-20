@@ -71,14 +71,14 @@ flowchart TD
 
 Aligator optimizes the five arm joints; the gripper remains fixed at its requested initial position. At knot $k$, the state and control are
 
-$$
+```math
 x_k = \begin{bmatrix}q_k \\ v_k\end{bmatrix},
 \qquad u_k = \tau_k,
-$$
+```
 
 where $q_k, v_k, \tau_k \in \mathbb{R}^5$. Joint acceleration $a(x_k, \tau_k)$ is computed by the same Pinocchio forward dynamics used by the semi-implicit Euler integrator. For $N$ stages, the solver minimizes
 
-$$
+```math
 \begin{aligned}
 \min_{x_{0:N},\,\tau_{0:N-1}}\quad
 &\sum_{k=0}^{N-1}
@@ -90,11 +90,11 @@ $$
 + \lVert p_{ee}(q_N)-p_{target}\rVert_{10^5 I}^{2}
 + \lVert V_{ee}(x_N)\rVert_{10^3 I}^{2},
 \end{aligned}
-$$
+```
 
 subject to
 
-$$
+```math
 \begin{aligned}
 x_0 &= [q_{start}, 0], \\
 x_{k+1} &= F_h(x_k, \tau_k), \\
@@ -102,7 +102,7 @@ q_{min} \le q_k &\le q_{max} && k=0,\ldots,N-1, \\
 \lvert v_k \rvert &\le 4\ \mathrm{rad/s} && k=0,\ldots,N-1, \\
 \lvert \tau_k \rvert &\le 2.94\ \mathrm{N\,m} && k=0,\ldots,N-1.
 \end{aligned}
-$$
+```
 
 Here, $F_h$ is the semi-implicit Euler discretization, $h = \text{duration}/N$, and $N$ is chosen near the nominal 20 ms timestep, with a hard limit of 1000 stages. The terminal terms drive the `gripperframe` position to the target while reducing terminal joint and frame velocity. Acceleration regularization discourages the optimizer from waiting and performing nearly all motion at the end of the horizon.
 
