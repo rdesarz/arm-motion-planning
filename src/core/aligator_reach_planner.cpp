@@ -363,10 +363,12 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
         pinocchio::getFrameVelocity(arm_model, final_data, frame_id, pinocchio::LOCAL_WORLD_ALIGNED)
             .linear()
             .norm();
+    const double max_terminal_joint_velocity = final_state.tail(nv).cwiseAbs().maxCoeff();
 
     const detail::AligatorValidationMetrics metrics{
         .final_position_error_m = final_position_error,
         .final_frame_speed_mps = final_frame_speed,
+        .max_terminal_joint_velocity_rad_s = max_terminal_joint_velocity,
         .max_joint_limit_violation_rad = maximum_joint_violation,
         .max_velocity_limit_violation_rad_s = maximum_velocity_violation,
         .max_effort_limit_violation_nm = maximum_effort_violation,
@@ -410,6 +412,7 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     trajectory.report = PlanningReport{
         .final_position_error_m = final_position_error,
         .final_frame_speed_mps = final_frame_speed,
+        .max_terminal_joint_velocity_rad_s = max_terminal_joint_velocity,
         .max_joint_limit_violation_rad = maximum_joint_violation,
         .computation_time_s =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - started_at).count(),

@@ -42,6 +42,8 @@ bool valid_common_trajectory(const so101_traj_planner::JointTrajectory& trajecto
                     "the final position error must satisfy the planner contract");
   passed &= require(trajectory.report.final_frame_speed_mps <= 0.02,
                     "the final frame speed must satisfy the planner contract");
+  passed &= require(trajectory.report.max_terminal_joint_velocity_rad_s <= 1e-3,
+                    "the terminal arm-joint velocity must be numerically zero");
   passed &= require(trajectory.report.max_joint_limit_violation_rad <= 1e-6,
                     "the plan must satisfy joint limits");
   if (trajectory.knots.empty()) {

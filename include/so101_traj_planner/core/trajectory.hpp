@@ -20,6 +20,7 @@ struct TrajectoryKnot {
 struct PlanningReport {
   double final_position_error_m;
   double final_frame_speed_mps;
+  double max_terminal_joint_velocity_rad_s;
   double max_joint_limit_violation_rad;
   double computation_time_s;
 };

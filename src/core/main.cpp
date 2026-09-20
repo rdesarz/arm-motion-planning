@@ -171,6 +171,8 @@ int main(int argc, char* argv[]) {
             << "duration_s=" << trajectory->knots.back().time_s << "\n"
             << "final_position_error_m=" << trajectory->report.final_position_error_m << "\n"
             << "final_frame_speed_mps=" << trajectory->report.final_frame_speed_mps << "\n"
+            << "max_terminal_joint_velocity_rad_s="
+            << trajectory->report.max_terminal_joint_velocity_rad_s << "\n"
             << "max_joint_limit_violation_rad=" << trajectory->report.max_joint_limit_violation_rad
             << "\n"
             << "computation_time_s=" << trajectory->report.computation_time_s << "\n";

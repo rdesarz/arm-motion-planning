@@ -45,7 +45,7 @@ The first increment does not include:
 - an end-effector orientation target;
 - collision or self-collision avoidance;
 - geometric obstacle planning;
-- automatic trajectory-duration optimization;
+- continuous trajectory-duration optimization inside `AligatorReachPlanner`;
 - online replanning or model-predictive control;
 - Cartesian-start input without an accompanying joint configuration;
 - gripper opening or closing during the reach;
@@ -75,7 +75,7 @@ A successful result contains:
 
 - exactly `N + 1` state knots;
 - a strictly increasing timestamp, six joint positions, and six joint velocities for every knot;
-- a report containing final position error, final frame speed, maximum joint-limit violation, and computation time.
+- a report containing final position error, final frame speed, maximum terminal arm-joint velocity, maximum joint-limit violation, and computation time.
 
 The exposed gripper velocity is zero because the gripper is locked during planning.
 
@@ -201,6 +201,7 @@ struct TrajectoryKnot {
 struct PlanningReport {
   double final_position_error_m;
   double final_frame_speed_mps;
+  double max_terminal_joint_velocity_rad_s;
   double max_joint_limit_violation_rad;
   double computation_time_s;
 };
@@ -280,6 +281,7 @@ classDiagram
     class PlanningReport {
         +double final_position_error_m
         +double final_frame_speed_mps
+        +double max_terminal_joint_velocity_rad_s
         +double max_joint_limit_violation_rad
         +double computation_time_s
     }
@@ -317,6 +319,7 @@ A result is successful only when all of the following hold:
 | Initial configuration error | `<= 1e-9 rad` |
 | Final Cartesian position error | `<= 0.005 m` |
 | Final Cartesian frame speed | `<= 0.02 m/s` |
+| Maximum terminal arm-joint velocity | `<= 0.001 rad/s` |
 | Joint-position limit violation | `<= 1e-6 rad` |
 | Gripper position deviation | `<= 1e-12 rad` |
 

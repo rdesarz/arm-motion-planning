@@ -17,12 +17,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(AMP_BUILD_TESTS "Build the headless simulation tests" ON)
+option(AMP_BUILD_BENCHMARKS "Build the Google Benchmark targets" OFF)
 set(AMP_SO101_MODEL_DIR "" CACHE PATH "Path to a local robotstudio_so101 model directory")
 
 find_package(mujoco 3.1.3 CONFIG REQUIRED)
 find_package(glfw3 3.4 CONFIG REQUIRED)
 find_package(pinocchio 4 CONFIG REQUIRED)
 find_package(aligator 0.19 CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 if(TARGET glfw)
   set(AMP_GLFW_TARGET glfw)
@@ -58,12 +60,13 @@ target_compile_features(amp_viewer PUBLIC cxx_std_23)
 
 add_library(amp_planning
             src/core/aligator_reach_planner.cpp
-            src/core/aligator_validation.cpp)
+            src/core/aligator_validation.cpp
+            src/core/minimum_time_reach_planner.cpp)
 add_library(so101_traj_planner::planning ALIAS amp_planning)
 target_include_directories(amp_planning PUBLIC include)
 target_link_libraries(amp_planning
                       PUBLIC Eigen3::Eigen
-                      PRIVATE aligator::aligator pinocchio::pinocchio_parsers)
+                      PRIVATE aligator::aligator pinocchio::pinocchio_parsers Threads::Threads)
 target_compile_features(amp_planning PUBLIC cxx_std_23)
 
 add_library(amp_playback src/core/trajectory_player.cpp)
@@ -149,6 +152,14 @@ if(AMP_BUILD_TESTS)
   target_compile_features(aligator_validation_test PRIVATE cxx_std_23)
   add_test(NAME aligator_internal_validation COMMAND aligator_validation_test)
 
+  add_executable(minimum_time_reach_planner_test tests/minimum_time_reach_planner_test.cpp)
+  target_link_libraries(minimum_time_reach_planner_test
+                        PRIVATE so101_traj_planner::planning pinocchio::pinocchio_parsers)
+  target_compile_features(minimum_time_reach_planner_test PRIVATE cxx_std_23)
+  target_compile_definitions(minimum_time_reach_planner_test
+                             PRIVATE AMP_TEST_ROBOT_PATH="${AMP_SO101_MODEL_PATH}/so101.xml")
+  add_test(NAME minimum_time_reach_search COMMAND minimum_time_reach_planner_test)
+
   add_executable(trajectory_player_test tests/trajectory_player_test.cpp)
   target_link_libraries(trajectory_player_test
                         PRIVATE so101_traj_planner::planning so101_traj_planner::playback so101_traj_planner::simulation)
@@ -163,6 +174,23 @@ if(AMP_BUILD_TESTS)
 
   add_test(NAME reach_cli_demo
            COMMAND so101_reach --target 0.31741606 -0.09770090 0.26459835)
+endif()
+
+if(AMP_BUILD_BENCHMARKS)
+  find_package(benchmark CONFIG REQUIRED)
+  add_executable(minimum_time_reach_planner_benchmark
+                 benchmarks/minimum_time_reach_planner_benchmark.cpp)
+  target_link_libraries(minimum_time_reach_planner_benchmark
+                        PRIVATE so101_traj_planner::planning benchmark::benchmark)
+  target_compile_features(minimum_time_reach_planner_benchmark PRIVATE cxx_std_23)
+  target_compile_definitions(
+    minimum_time_reach_planner_benchmark
+    PRIVATE AMP_BENCHMARK_ROBOT_PATH="${AMP_SO101_MODEL_PATH}/so101.xml")
+  if(MSVC)
+    target_compile_options(minimum_time_reach_planner_benchmark PRIVATE /W4 /permissive-)
+  else()
+    target_compile_options(minimum_time_reach_planner_benchmark PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
 endif()
 
 message(STATUS "SO-101 scene: ${AMP_SO101_SCENE}")

@@ -37,7 +37,7 @@ pixi run ./build/pixi/so101_reach \
   --csv
 ```
 
-A successful plan contains 101 position-and-velocity knots for the default two-second horizon and reports its terminal position error, terminal frame speed, joint-limit violation, and computation time.
+A successful plan contains 101 position-and-velocity knots for the default two-second horizon and reports its terminal position error, terminal frame speed, maximum terminal joint velocity, joint-limit violation, and computation time.
 
 The planner fails closed for invalid inputs, model mismatches, solver failure, or violated postconditions. It does not silently return an invalid last iterate.
 
@@ -106,7 +106,30 @@ q_{min} \le q_k &\le q_{max} && k=0,\ldots,N-1, \\
 
 Here, $F_h$ is the semi-implicit Euler discretization, $h = \text{duration}/N$, and $N$ is chosen near the nominal 20 ms timestep, with a hard limit of 1000 stages. The terminal terms drive the `gripperframe` position to the target while reducing terminal joint and frame velocity. Acceleration regularization discourages the optimizer from waiting and performing nearly all motion at the end of the horizon.
 
-Solver convergence alone is insufficient. Before returning a trajectory, the planner independently checks every knot, including the terminal state, and requires finite states and controls, final position error at most 5 mm, final frame speed at most 0.02 m/s, joint/velocity/effort violations at most $10^{-6}$, and maximum dynamics defect at most $10^{-5}$. The formulation is defined in [`aligator_reach_planner.cpp`](src/core/aligator_reach_planner.cpp); the complete behavioral contract is in [specification 001](specs/001-aligator-reach-trajectory.md).
+Solver convergence alone is insufficient. Before returning a trajectory, the planner independently checks every knot, including the terminal state, and requires finite states and controls, final position error at most 5 mm, final frame speed at most 0.02 m/s, maximum terminal arm-joint velocity at most 0.001 rad/s, joint/velocity/effort violations at most $10^{-6}$, and maximum dynamics defect at most $10^{-5}$. The formulation is defined in [`aligator_reach_planner.cpp`](src/core/aligator_reach_planner.cpp); the complete behavioral contract is in [specification 001](specs/001-aligator-reach-trajectory.md).
+
+## Minimum-time horizon search
+
+`MinimumTimeReachPlanner` searches a bounded duration grid and returns the shortest trajectory that passes every fixed-duration planner postcondition. It owns one independent `AligatorReachPlanner` per worker and evaluates candidate horizons in parallel. A failed candidate is not treated as proof of physical infeasibility; the result is therefore the shortest validated horizon found on the requested grid, not a globally optimality-certified duration.
+
+```cpp
+auto planner = so101_traj_planner::MinimumTimeReachPlanner::load(robot_mjcf, 4);
+const auto result = planner->plan({
+    .q_start = {0.0, 0.0, 0.0, 0.0, 0.0, 0.25},
+    .target_world_m = Eigen::Vector3d{0.31741606, -0.09770090, 0.26459835},
+    .minimum_duration_s = 0.2,
+    .maximum_duration_s = 2.0,
+    .duration_resolution_s = 0.02,
+});
+```
+
+The search stops scheduling longer horizons once a shorter worker has produced a validated result, although already-running solves complete before return. Invalid ranges, worker counts above 32, and searches exceeding 1000 candidate horizons fail closed.
+
+Build and run the Google Benchmark comparison for one, two, and four search workers with:
+
+```sh
+pixi run benchmark
+```
 
 ## MuJoCo playback
 
@@ -157,9 +180,9 @@ pixi run cmake -S . -B build/pixi -G Ninja \
 
 ## Scope and architecture
 
-`AligatorReachPlanner` accepts a start joint configuration, a world-frame position target, and a duration. It returns a project-owned `JointTrajectory`; Aligator and Pinocchio types remain private to the planner implementation. `TrajectoryPlayer` separately consumes the trajectory, so simulation does not depend on the planner.
+`AligatorReachPlanner` accepts a start joint configuration, a world-frame position target, and a duration. `MinimumTimeReachPlanner` wraps that fixed-duration module with a bounded parallel grid search. Both return project-owned result types; Aligator and Pinocchio types remain private to their implementations. `TrajectoryPlayer` separately consumes a trajectory, so simulation does not depend on either planner.
 
-The current optimizer uses five arm joints and locks the gripper at its initial position. It enforces experimental velocity limits, the model's 2.94 Nm actuator evidence, and model joint limits. Collision avoidance, orientation targets, automatic duration optimization, online replanning, and hardware execution are not implemented.
+The current optimizer uses five arm joints and locks the gripper at its initial position. It enforces experimental velocity limits, the model's 2.94 Nm actuator evidence, model joint limits, and a numerical zero-terminal-joint-velocity postcondition. Collision avoidance, orientation targets, continuous free-final-time optimization, online replanning, and hardware execution are not implemented.
 
 The full contract, acceptance thresholds, and class diagram are in [specification 001](specs/001-aligator-reach-trajectory.md).
 
