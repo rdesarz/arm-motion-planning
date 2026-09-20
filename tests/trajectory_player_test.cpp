@@ -66,5 +66,37 @@ int main() {
                     "maximum joint tracking error must be finite");
   passed &= require(simulation->data().time >= request.duration_s,
                     "playback must cover the complete trajectory duration");
+
+  simulation->reset();
+  auto controller = so101_traj_planner::TrajectoryPlaybackController::create(*simulation);
+  if (!controller) {
+    std::cerr << "FAILED: " << controller.error() << "\n";
+    return EXIT_FAILURE;
+  }
+  if (const auto started = controller->start(*trajectory, *simulation); !started) {
+    std::cerr << "FAILED: " << started.error() << "\n";
+    return EXIT_FAILURE;
+  }
+  while (true) {
+    const auto should_step = controller->before_step(*simulation);
+    if (!should_step) {
+      std::cerr << "FAILED: " << should_step.error() << "\n";
+      return EXIT_FAILURE;
+    }
+    if (!*should_step) {
+      break;
+    }
+    simulation->step();
+  }
+  passed &= require(simulation->data().time >= request.duration_s,
+                    "reusable playback controller must complete its trajectory");
+
+  const auto restarted = controller->start(*trajectory, *simulation);
+  passed &= require(restarted.has_value(), "playback controller must accept another trajectory");
+  if (restarted) {
+    const auto should_step = controller->before_step(*simulation);
+    passed &= require(should_step && *should_step,
+                      "restarted playback controller must command the next trajectory");
+  }
   return passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

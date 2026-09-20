@@ -117,15 +117,66 @@ std::expected<void, std::string> reset_playback(const JointTrajectory& trajector
   return {};
 }
 
-void command_positions(const JointVector& positions, const PlaybackMapping& mapping,
+void command_positions(const JointVector& positions,
+                       const std::array<int, kSo101JointCount>& actuator_ids,
                        Simulation& simulation) {
   auto& data = simulation.data();
   for (std::size_t joint = 0; joint < kSo101JointNames.size(); ++joint) {
-    data.ctrl[mapping.actuator_ids[joint]] = positions[joint];
+    data.ctrl[actuator_ids[joint]] = positions[joint];
   }
 }
 
 }  // namespace
+
+TrajectoryPlaybackController::TrajectoryPlaybackController(
+    std::array<int, kSo101JointCount> actuator_ids)
+    : actuator_ids_(std::move(actuator_ids)) {}
+
+std::expected<TrajectoryPlaybackController, std::string> TrajectoryPlaybackController::create(
+    const Simulation& simulation) {
+  const auto mapping = build_mapping(simulation);
+  if (!mapping) {
+    return std::unexpected(mapping.error());
+  }
+  return TrajectoryPlaybackController(mapping->actuator_ids);
+}
+
+std::expected<void, std::string> TrajectoryPlaybackController::start(
+    const JointTrajectory& trajectory, Simulation& simulation) {
+  if (const auto validation = validate_trajectory(trajectory); !validation) {
+    return std::unexpected(validation.error());
+  }
+  trajectory_ = trajectory;
+  start_time_s_ = simulation.data().time;
+  command_positions(trajectory.knots.front().q, actuator_ids_, simulation);
+  return {};
+}
+
+std::expected<bool, std::string> TrajectoryPlaybackController::before_step(Simulation& simulation) {
+  if (!trajectory_) {
+    return false;
+  }
+
+  const double elapsed_s = simulation.data().time - start_time_s_;
+  const double duration_s = trajectory_->knots.back().time_s;
+  if (!std::isfinite(elapsed_s) || elapsed_s < 0.0) {
+    return std::unexpected("MuJoCo playback time is invalid");
+  }
+  if (elapsed_s >= duration_s) {
+    trajectory_.reset();
+    return false;
+  }
+
+  const double command_time_s = std::min(duration_s, elapsed_s + simulation.model().opt.timestep);
+  const auto command = sample_positions(*trajectory_, command_time_s);
+  if (!command) {
+    return std::unexpected(command.error());
+  }
+  command_positions(*command, actuator_ids_, simulation);
+  return true;
+}
+
+void TrajectoryPlaybackController::stop() { trajectory_.reset(); }
 
 std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTrajectory& trajectory,
                                                                   Simulation& simulation) {
@@ -151,7 +202,7 @@ std::expected<PlaybackReport, std::string> TrajectoryPlayer::play(const JointTra
     if (!command) {
       return std::unexpected(command.error());
     }
-    command_positions(*command, *mapping, simulation);
+    command_positions(*command, mapping->actuator_ids, simulation);
 
     simulation.step();
     if (!std::isfinite(data.time) || data.time <= previous_simulation_time) {
@@ -224,11 +275,19 @@ std::expected<void, std::string> TrajectoryPlayer::visualize(const JointTrajecto
         if (!command) {
           return std::unexpected(command.error());
         }
-        command_positions(*command, playback_mapping, current);
+        command_positions(*command, playback_mapping.actuator_ids, current);
         return true;
       },
+      .on_target_submitted = {},
+      .target_editor_initial = std::nullopt,
+      .start_paused = false,
+      .enable_target_editor = false,
   };
-  return run_viewer(simulation, std::move(options));
+  const auto viewer = run_viewer(simulation, std::move(options));
+  if (!viewer) {
+    return std::unexpected(viewer.error());
+  }
+  return {};
 }
 
 }  // namespace so101_traj_planner

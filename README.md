@@ -41,6 +41,26 @@ A successful plan contains 101 position-and-velocity knots for the default two-s
 
 The planner fails closed for invalid inputs, model mismatches, solver failure, or violated postconditions. It does not silently return an invalid last iterate.
 
+### Enter a target in MuJoCo
+
+To enter a target visually and then plan and play the reach:
+
+```sh
+pixi run target-gui
+```
+
+The paused viewer opens with a target panel initialized to the current `gripperframe` position:
+
+- use the normal mouse controls to adjust the camera;
+- edit the X, Y, and Z values in metres;
+- use each axis's `<` and `>` buttons to move it by 1 cm, or hold `Shift` while clicking for 1 mm;
+- watch the yellow marker and its XYZ axes update as the values change;
+- click `Send target` (or press `Enter` outside a value field) to plan and execute the reach;
+- edit and send another target at any time without reopening the window;
+- press `Esc` to close the editor.
+
+The editor stays open while the arm follows the planned position trajectory. Each new reach starts from the arm's current simulated joint state. An unreachable value is reported in the window and leaves it open for correction. The same position-only and collision-avoidance limitations described below still apply.
+
 ## Planning workflow and optimization problem
 
 ```mermaid

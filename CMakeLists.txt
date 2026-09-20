@@ -172,6 +172,12 @@ if(AMP_BUILD_TESTS)
   )
   add_test(NAME trajectory_playback COMMAND trajectory_player_test)
 
+  add_executable(viewer_target_editor_test tests/viewer_target_editor_test.cpp)
+  target_include_directories(viewer_target_editor_test PRIVATE src/viewer)
+  target_link_libraries(viewer_target_editor_test PRIVATE so101_traj_planner::viewer)
+  target_compile_features(viewer_target_editor_test PRIVATE cxx_std_23)
+  add_test(NAME viewer_target_editor COMMAND viewer_target_editor_test)
+
   add_test(NAME reach_cli_demo
            COMMAND so101_reach --target 0.31741606 -0.09770090 0.26459835)
 endif()
