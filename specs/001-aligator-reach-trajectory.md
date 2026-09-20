@@ -8,7 +8,7 @@ Dependency manager: Pixi
 
 ## Summary
 
-Given a valid initial SO-101 joint configuration and a target Cartesian position, compute a finite-duration joint trajectory that moves the `gripperframe` to the target. A project-owned reach-planner strategy interface allows different planners to satisfy the same behavioral contract. The first adapter uses Aligator for constrained trajectory optimization with a Pinocchio model loaded from the same pinned MJCF model as the MuJoCo simulator.
+Given a valid initial SO-101 joint configuration and a target Cartesian position, compute a finite-duration joint trajectory that moves the `gripperframe` to the target. `AligatorReachPlanner` uses Aligator for constrained trajectory optimization with a Pinocchio model loaded from the same pinned MJCF model as the MuJoCo simulator.
 
 This increment evaluates whether Aligator can generate a valid SO-101 reaching trajectory. It does not implement a general motion-planning system, collision avoidance, or a production controller.
 
@@ -25,19 +25,18 @@ Aligator is a trajectory-optimization library rather than a geometric path plann
 - **State** `x = (q_arm, v_arm)`: arm configuration and joint velocity.
 - **Control** `u = tau`: commanded arm joint torque inside the Aligator formulation; it is not part of the common planner interface.
 - **End-effector**: the MJCF site named `gripperframe`.
-- **Planned trajectory**: the time-parameterized joint states returned by any reach-planner strategy and validated against the common postconditions.
-- **Strategy**: an adapter that accepts the common reach request and either returns a conforming trajectory or a structured error.
+- **Planned trajectory**: the time-parameterized joint states returned by the planner and validated against its postconditions.
 - **Playback**: using the planned joint positions as references for MuJoCo's position actuators.
 
 ## Goals
 
 1. Load a Pinocchio model from the pinned SO-101 MJCF used by MuJoCo.
 2. Verify that Pinocchio and MuJoCo agree on the robot's joint mapping and end-effector placement.
-3. Given `q_start`, a world-frame target position, and a duration, solve a reaching problem through a replaceable planner strategy.
-4. Return a validated trajectory and strategy-neutral diagnostics through a small project-owned interface.
+3. Given `q_start`, a world-frame target position, and a duration, solve a reaching problem with Aligator.
+4. Return a validated trajectory and diagnostics through a small project-owned interface.
 5. Exercise the planner in a deterministic headless integration test.
 6. Allow optional visualization of the planned motion in MuJoCo without presenting playback as execution of Aligator's optimized torques.
-7. Keep Aligator and any future planning library outside the interface seen by callers and playback.
+7. Keep Aligator types outside the interface seen by callers and playback.
 
 ## Non-goals
 
@@ -76,7 +75,7 @@ A successful result contains:
 
 - exactly `N + 1` state knots;
 - a strictly increasing timestamp, six joint positions, and six joint velocities for every knot;
-- a report containing the strategy identifier, final position error, final frame speed, maximum joint-limit violation, and computation time.
+- a report containing final position error, final frame speed, maximum joint-limit violation, and computation time.
 
 The exposed gripper velocity is zero because the gripper is locked during planning.
 
@@ -89,8 +88,7 @@ The planner returns an error and no trajectory when:
 - `q_start` violates a joint limit;
 - the model does not have the expected joint mapping;
 - the exact `gripperframe` cannot be constructed;
-- the requested planner strategy is unavailable;
-- the selected strategy cannot produce a valid plan;
+- Aligator cannot produce a valid plan;
 - the returned data contain non-finite values;
 - any acceptance postcondition is violated.
 
@@ -148,11 +146,10 @@ The horizon and solver settings are versioned implementation configuration. They
 
 Each running stage penalizes:
 
-- deviation from the initial arm posture with a low weight;
-- joint velocity;
+- joint acceleration computed by the same Pinocchio forward dynamics used by the integrator;
 - joint torque.
 
-The posture term disambiguates solutions because a position-only target does not uniquely determine all arm joints. All stage costs are scaled consistently with `dt`.
+The acceleration term distributes motion across the fixed horizon without prescribing an intermediate Cartesian path. The small torque term discourages unnecessarily large actuator effort. Both stage costs are scaled consistently with `dt`.
 
 Torque variation may be added later only if the first validated trajectory is insufficiently smooth. It is not part of the initial formulation.
 
@@ -162,7 +159,7 @@ The terminal stage penalizes:
 
 - `FrameTranslationResidual` from `gripperframe` to `target_world_m`, with a high weight;
 - `FrameVelocityResidual` from `gripperframe` to zero, with a high weight;
-- deviation from the initial posture with a low weight.
+- arm joint velocity relative to zero, with a high weight.
 
 The final Cartesian tolerance is a validated postcondition. A large terminal cost alone does not establish success.
 
@@ -178,28 +175,16 @@ Velocity limits must be stored as project configuration and labelled experimenta
 
 ## Module design
 
-The planner is a deep module: callers provide a reach request and receive either a validated trajectory or a structured error. Planner-library model construction, costs, constraints, solver settings, initialization, and strategy-specific validation stay inside each adapter's implementation.
+The planner is a deep module: callers load `AligatorReachPlanner`, provide a reach request, and receive either a validated trajectory or a structured error. Model construction, costs, constraints, solver settings, initialization, and Aligator-specific validation stay inside its implementation.
 
-The strategy seam is semantic, not merely structural. Every adapter must:
+There is deliberately no strategy interface or factory while Aligator is the only planner. A second planner should first demonstrate a real substitution need before introducing a seam.
 
-- accept the same start configuration, target frame, coordinate convention, and duration semantics;
-- return a time-parameterized joint trajectory in canonical joint order;
-- preserve the locked gripper position;
-- enforce all common success postconditions;
-- fail closed when it cannot provide those guarantees.
-
-A geometric planner that returns only waypoints is not directly substitutable. Its adapter must also perform time parameterization and validate the resulting trajectory before it may implement `ReachPlanner`.
-
-The reusable result type is named `JointTrajectory`, not `ReachTrajectory`. Reaching is how the trajectory is requested; playback and future controllers only need the resulting time-indexed joint motion. Conversely, the strategy remains named `ReachPlanner` because its input still describes one specific planning problem. It must not be generalized to `TrajectoryPlanner` until the interface genuinely supports other goal types.
+The reusable result type is named `JointTrajectory`, not `ReachTrajectory`. Reaching is how the trajectory is requested; playback and future controllers only need the resulting time-indexed joint motion.
 
 ```cpp
 namespace amp {
 
 using JointVector = std::array<double, 6>;
-
-enum class ReachPlannerKind {
-  aligator,
-};
 
 struct ReachRequest {
   JointVector q_start;
@@ -214,7 +199,6 @@ struct TrajectoryKnot {
 };
 
 struct PlanningReport {
-  ReachPlannerKind strategy;
   double final_position_error_m;
   double final_frame_speed_mps;
   double max_joint_limit_violation_rad;
@@ -228,7 +212,6 @@ struct JointTrajectory {
 
 enum class PlanningErrorCode {
   invalid_request,
-  strategy_unavailable,
   model_mismatch,
   frame_missing,
   planning_failed,
@@ -240,46 +223,28 @@ struct PlanningError {
   std::string message;
 };
 
-class ReachPlanner {
+class AligatorReachPlanner {
  public:
-  virtual ~ReachPlanner() = default;
+  [[nodiscard]] static std::expected<AligatorReachPlanner, PlanningError> load(
+      const std::filesystem::path& robot_mjcf);
 
-  [[nodiscard]] virtual std::expected<JointTrajectory, PlanningError> plan(
-      const ReachRequest& request) const = 0;
-};
-
-class ReachPlannerFactory;
-
-class AligatorReachPlanner final : public ReachPlanner {
- public:
-  ~AligatorReachPlanner() override;
+  ~AligatorReachPlanner();
   AligatorReachPlanner(AligatorReachPlanner&&) noexcept;
   AligatorReachPlanner& operator=(AligatorReachPlanner&&) noexcept;
 
   [[nodiscard]] std::expected<JointTrajectory, PlanningError> plan(
-      const ReachRequest& request) const override;
+      const ReachRequest& request) const;
 
  private:
-  friend class ReachPlannerFactory;
   class Impl;
   explicit AligatorReachPlanner(std::unique_ptr<Impl> impl);
   std::unique_ptr<Impl> impl_;
 };
 
-class ReachPlannerFactory {
- public:
-  [[nodiscard]] static std::expected<std::unique_ptr<ReachPlanner>, PlanningError>
-  create(ReachPlannerKind kind, const std::filesystem::path& robot_mjcf);
-};
-
 }  // namespace amp
 ```
 
-The factory is the composition root for strategy selection and model loading. The first increment uses an enum with one value; it does not add a registration framework, stringly typed configuration, or dynamic plugin loading.
-
-The public interface must not expose Aligator solver objects, Aligator residuals, Pinocchio models, optimized torques, dynamics defects, or numerical cost weights. The Aligator adapter validates its torque and dynamics results internally before constructing a common successful result.
-
-With only one concrete adapter, the strategy seam remains provisional. Its value must be reassessed when a second planner is selected: if the second planner cannot honestly satisfy the same contract, it needs a different interface rather than weaker guarantees.
+The public interface must not expose Aligator solver objects, Aligator residuals, Pinocchio models, optimized torques, dynamics defects, or numerical cost weights. The planner validates its torque and dynamics results internally before constructing a successful result.
 
 `amp::Simulation` remains independent of Aligator. Playback consumes `JointTrajectory` through a separate project-owned module rather than adding planner responsibilities to the simulation module.
 
@@ -289,23 +254,10 @@ With only one concrete adapter, the strategy seam remains provisional. Its value
 classDiagram
     direction LR
 
-    class ReachPlanner {
-        <<interface>>
-        +plan(ReachRequest) Expected~JointTrajectory, PlanningError~
-    }
-
     class AligatorReachPlanner {
+        +load(path) Expected~AligatorReachPlanner, PlanningError~
+        +plan(ReachRequest) Expected~JointTrajectory, PlanningError~
         -Impl impl
-        +plan(ReachRequest) Expected~JointTrajectory, PlanningError~
-    }
-
-    class AlternativeReachPlanner {
-        <<future adapter>>
-        +plan(ReachRequest) Expected~JointTrajectory, PlanningError~
-    }
-
-    class ReachPlannerFactory {
-        +create(ReachPlannerKind, path) Expected~unique_ptr ReachPlanner, PlanningError~
     }
 
     class ReachRequest {
@@ -326,7 +278,6 @@ classDiagram
     }
 
     class PlanningReport {
-        +ReachPlannerKind strategy
         +double final_position_error_m
         +double final_frame_speed_mps
         +double max_joint_limit_violation_rad
@@ -344,19 +295,14 @@ classDiagram
 
     class Simulation
 
-    ReachPlanner <|.. AligatorReachPlanner : implements
-    ReachPlanner <|.. AlternativeReachPlanner : future
-    ReachPlannerFactory ..> ReachPlanner : creates
-    ReachPlanner ..> ReachRequest : accepts
-    ReachPlanner ..> JointTrajectory : returns
-    ReachPlanner ..> PlanningError : returns
+    AligatorReachPlanner ..> ReachRequest : accepts
+    AligatorReachPlanner ..> JointTrajectory : returns
+    AligatorReachPlanner ..> PlanningError : returns
     JointTrajectory *-- TrajectoryKnot
     JointTrajectory *-- PlanningReport
     TrajectoryPlayer ..> JointTrajectory : consumes
     TrajectoryPlayer ..> Simulation : drives
 ```
-
-`AlternativeReachPlanner` represents the extension point; it is not an implementation deliverable for the Aligator increment.
 
 ## Validation and acceptance criteria
 
@@ -364,7 +310,7 @@ A result is successful only when all of the following hold:
 
 | Property | Required value |
 | --- | ---: |
-| Strategy outcome | successful |
+| Planner outcome | successful |
 | Returned values | all finite |
 | State knots | `N + 1` |
 | Timestamps | start at zero, strictly increase, and end at `duration_s` |
@@ -376,7 +322,7 @@ A result is successful only when all of the following hold:
 
 Computation time is recorded but does not initially determine pass or failure. A performance threshold may be introduced after a reproducible baseline exists.
 
-### Aligator adapter-specific acceptance
+### Aligator-specific acceptance
 
 Before returning a common successful trajectory, `AligatorReachPlanner` additionally requires:
 
@@ -402,11 +348,13 @@ Choose an in-limit `q_reference` that is not the initial configuration. Compute 
 
 The test checks the target position, not equality with `q_reference`, because a position-only reach can have multiple valid joint solutions.
 
+For this canonical non-zero reach, the arm-joint displacement norm at the midpoint must be at least 10% of its terminal displacement norm. This regression check rejects solutions that postpone nearly all motion until the end of the horizon; it is not a general smoothness metric.
+
 ### No-op target
 
 Set the target to the end-effector position at `q_start`. The planner must succeed and the maximum joint displacement must remain below a small documented tolerance.
 
-The first Aligator adapter uses `1e-3 rad` as that no-op displacement tolerance.
+The Aligator planner uses `1e-3 rad` as that no-op displacement tolerance.
 
 ### Invalid requests
 
@@ -422,11 +370,11 @@ Use a point clearly outside the SO-101 workspace. The call must return `planning
 
 ### Constraint regression
 
-For the canonical reachable trajectory, independently recompute joint-limit violations from every returned knot. The Aligator adapter test additionally checks its internal effort and dynamics constraints.
+For the canonical reachable trajectory, independently recompute joint-limit violations from every returned knot. The Aligator planner test additionally checks its internal effort and dynamics constraints.
 
 ### Strategy contract
 
-Run the same reachable, no-op, invalid, and unreachable request suite against every `ReachPlanner` adapter. A new strategy is not complete until it passes this shared suite without strategy-specific exceptions.
+Run the reachable, no-op, invalid, and unreachable request suite against `AligatorReachPlanner`.
 
 ## MuJoCo playback
 
@@ -488,7 +436,7 @@ The completed increment contains:
 
 - a reproducible `pixi.toml` and committed `pixi.lock` covering Aligator, Pinocchio, MuJoCo, GLFW, and the C++ build tools;
 - named Pixi tasks for configure, build, headless tests, and the reach demonstration;
-- the `ReachPlanner` strategy interface, factory, and `AligatorReachPlanner` adapter;
+- the `AligatorReachPlanner` interface and implementation;
 - model-parity validation;
 - headless tests for the scenarios above;
 - a command-line reach example with an explicit target;
@@ -502,9 +450,7 @@ The following decisions are intentionally deferred until the dependency and mode
 1. The exact conservative experimental velocity limits.
 2. Numerical cost weights and solver regularization values needed to satisfy the fixed acceptance criteria.
 3. Whether MuJoCo playback belongs in the existing executable or a separate demonstration executable.
-4. Which second planner is useful enough to turn the provisional strategy seam into a demonstrated one.
-
-None of these decisions changes the public `ReachPlanner` interface.
+4. Whether a future second planner provides enough value to justify introducing a strategy seam.
 
 ## References
 

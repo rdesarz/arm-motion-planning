@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 
-#include "amp/reach_planner.hpp"
+#include "amp/aligator_reach_planner.hpp"
 #include "amp/simulation.hpp"
 #include "amp/so101_model.hpp"
 
@@ -20,8 +20,7 @@ bool require(const bool condition, const char* message) {
 }  // namespace
 
 int main() {
-  auto planner =
-      amp::ReachPlannerFactory::create(amp::ReachPlannerKind::aligator, AMP_TEST_ROBOT_PATH);
+  auto planner = amp::AligatorReachPlanner::load(AMP_TEST_ROBOT_PATH);
   if (!planner) {
     std::cerr << "FAILED: " << planner.error().message << "\n";
     return EXIT_FAILURE;
@@ -32,7 +31,7 @@ int main() {
       .target_world_m = Eigen::Vector3d{0.31741606, -0.09770090, 0.26459835},
       .duration_s = 2.0,
   };
-  const auto trajectory = (*planner)->plan(request);
+  const auto trajectory = planner->plan(request);
   if (!trajectory) {
     std::cerr << "FAILED: " << trajectory.error().message << "\n";
     return EXIT_FAILURE;

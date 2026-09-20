@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-#include "amp/reach_planner.hpp"
+#include "amp/aligator_reach_planner.hpp"
 #include "amp/simulation.hpp"
 #include "amp/trajectory_player.hpp"
 
@@ -17,7 +17,6 @@ namespace {
 struct Options {
   std::filesystem::path robot_mjcf = AMP_DEFAULT_ROBOT_PATH;
   std::filesystem::path scene = AMP_DEFAULT_SCENE_PATH;
-  amp::ReachPlannerKind planner = amp::ReachPlannerKind::aligator;
   amp::JointVector q_start = {0.0, 0.0, 0.0, 0.0, 0.0, 0.25};
   std::optional<Eigen::Vector3d> target;
   double duration_s = 2.0;
@@ -30,7 +29,6 @@ void print_usage(const std::string_view executable) {
   std::cout << "Usage: " << executable
             << " --target X Y Z [--q-start Q0 Q1 Q2 Q3 Q4 Q5] [options]\n\n"
             << "Options:\n"
-            << "  --planner aligator  Reach-planning strategy (default: aligator)\n"
             << "  --duration SECONDS  Requested duration (default: 2.0)\n"
             << "  --robot PATH        SO-101 robot MJCF\n"
             << "  --scene PATH        MuJoCo scene used by --playback\n"
@@ -93,13 +91,6 @@ std::expected<Options, std::string> parse_options(const int argc, char* argv[]) 
         return std::unexpected(value.error());
       }
       options.duration_s = *value;
-    } else if (argument == "--planner") {
-      if (++index >= argc) {
-        return std::unexpected("--planner requires a strategy name");
-      }
-      if (std::string_view(argv[index]) != "aligator") {
-        return std::unexpected("unsupported planner strategy: " + std::string(argv[index]));
-      }
     } else if (argument == "--robot") {
       if (++index >= argc) {
         return std::unexpected("--robot requires a path");
@@ -134,8 +125,6 @@ std::string_view error_code_name(const amp::PlanningErrorCode code) {
   switch (code) {
     case amp::PlanningErrorCode::invalid_request:
       return "invalid_request";
-    case amp::PlanningErrorCode::strategy_unavailable:
-      return "strategy_unavailable";
     case amp::PlanningErrorCode::model_mismatch:
       return "model_mismatch";
     case amp::PlanningErrorCode::frame_missing:
@@ -158,7 +147,7 @@ int main(int argc, char* argv[]) {
     return EXIT_FAILURE;
   }
 
-  auto planner = amp::ReachPlannerFactory::create(options->planner, options->robot_mjcf);
+  auto planner = amp::AligatorReachPlanner::load(options->robot_mjcf);
   if (!planner) {
     std::cerr << "Planning error [" << error_code_name(planner.error().code)
               << "]: " << planner.error().message << "\n";
@@ -170,14 +159,14 @@ int main(int argc, char* argv[]) {
       .target_world_m = *options->target,
       .duration_s = options->duration_s,
   };
-  const auto trajectory = (*planner)->plan(request);
+  const auto trajectory = planner->plan(request);
   if (!trajectory) {
     std::cerr << "Planning error [" << error_code_name(trajectory.error().code)
               << "]: " << trajectory.error().message << "\n";
     return EXIT_FAILURE;
   }
 
-  std::cout << "strategy=aligator\n"
+  std::cout << "planner=aligator\n"
             << "knots=" << trajectory->knots.size() << "\n"
             << "duration_s=" << trajectory->knots.back().time_s << "\n"
             << "final_position_error_m=" << trajectory->report.final_position_error_m << "\n"

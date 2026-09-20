@@ -1,6 +1,6 @@
 # SO-101 motion planning
 
-A C++23 experiment that generates a finite-duration SO-101 joint trajectory to a target `gripperframe` position. The first reach-planner strategy uses Aligator ProxDDP and Pinocchio; optional playback tracks the resulting position references in MuJoCo.
+A C++23 experiment that uses Aligator ProxDDP and Pinocchio to generate a finite-duration SO-101 joint trajectory to a target `gripperframe` position. Optional playback tracks the resulting position references in MuJoCo.
 
 ## Requirements
 
@@ -37,9 +37,9 @@ pixi run ./build/pixi/so101_reach \
   --csv
 ```
 
-The default planner is selected through the project-owned `ReachPlanner` strategy interface. `--planner aligator` is explicit and is currently the only available implementation. A successful plan contains 101 position-and-velocity knots for the default two-second horizon and reports its terminal position error, terminal frame speed, joint-limit violation, and computation time.
+A successful plan contains 101 position-and-velocity knots for the default two-second horizon and reports its terminal position error, terminal frame speed, joint-limit violation, and computation time.
 
-The planner fails closed for invalid inputs, unavailable strategies, model mismatches, solver failure, or violated postconditions. It does not silently return an invalid last iterate.
+The planner fails closed for invalid inputs, model mismatches, solver failure, or violated postconditions. It does not silently return an invalid last iterate.
 
 ## MuJoCo playback
 
@@ -61,7 +61,7 @@ pixi run ./build/pixi/so101_reach \
 
 The viewer plays at real-time simulation speed, pauses on the final pose, and restarts the trajectory when `R` or `Backspace` is pressed. Use `pixi run playback-headless` when no graphical display is available.
 
-Playback linearly resamples the planned joint positions at MuJoCo's timestep and reports Cartesian terminal tracking error and maximum joint tracking error. It sends position references to the current MuJoCo actuators; it does not execute Aligator's optimized torques and is not evidence of hardware readiness.
+Playback linearly resamples the planned joint positions at MuJoCo's timestep and reports Cartesian terminal tracking error and maximum joint tracking error. It sends position references to all six MuJoCo position actuators; Aligator's internal optimized torques are not exposed or executed. This is simulator position control, not evidence of hardware readiness.
 
 ## Simulator
 
@@ -90,7 +90,7 @@ pixi run cmake -S . -B build/pixi -G Ninja \
 
 ## Scope and architecture
 
-`ReachPlanner` accepts a start joint configuration, a world-frame position target, and a duration. It returns a strategy-neutral `JointTrajectory`; Aligator and Pinocchio types remain private to the adapter. `TrajectoryPlayer` separately consumes the trajectory, so simulation does not depend on the planner.
+`AligatorReachPlanner` accepts a start joint configuration, a world-frame position target, and a duration. It returns a project-owned `JointTrajectory`; Aligator and Pinocchio types remain private to the planner implementation. `TrajectoryPlayer` separately consumes the trajectory, so simulation does not depend on the planner.
 
 The current optimizer uses five arm joints and locks the gripper at its initial position. It enforces experimental velocity limits, the model's 2.94 Nm actuator evidence, and model joint limits. Collision avoidance, orientation targets, automatic duration optimization, online replanning, and hardware execution are not implemented.
 

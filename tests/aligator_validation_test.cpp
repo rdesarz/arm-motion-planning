@@ -27,7 +27,7 @@ int main() {
 
   bool passed = true;
   passed &= require(!amp::detail::validate_aligator_metrics(metrics),
-                    "metrics inside every adapter threshold must pass");
+                    "metrics inside every planner threshold must pass");
 
   metrics.max_effort_limit_violation_nm = amp::detail::kEffortLimitToleranceNm * 2.0;
   passed &= require(amp::detail::validate_aligator_metrics(metrics).has_value(),

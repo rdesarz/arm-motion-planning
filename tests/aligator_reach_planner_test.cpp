@@ -1,3 +1,5 @@
+#include "amp/aligator_reach_planner.hpp"
+
 #include <Eigen/Core>
 #include <algorithm>
 #include <array>
@@ -8,7 +10,6 @@
 #include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/parsers/mjcf.hpp>
 
-#include "amp/reach_planner.hpp"
 #include "amp/so101_model.hpp"
 
 namespace {
@@ -36,8 +37,6 @@ bool valid_common_trajectory(const amp::JointTrajectory& trajectory,
       1.91986, 1.7453293, 1.69, 1.658063, 2.7438473, 1.7453292};
   bool passed = true;
   passed &= require(trajectory.knots.size() == 101, "a two-second plan must contain 101 knots");
-  passed &= require(trajectory.report.strategy == amp::ReachPlannerKind::aligator,
-                    "the report must identify the selected strategy");
   passed &= require(trajectory.report.final_position_error_m <= 0.005,
                     "the final position error must satisfy the planner contract");
   passed &= require(trajectory.report.final_frame_speed_mps <= 0.02,
@@ -90,8 +89,7 @@ int main() {
   }
   pinocchio::Data data(model);
 
-  auto planner =
-      amp::ReachPlannerFactory::create(amp::ReachPlannerKind::aligator, AMP_TEST_ROBOT_PATH);
+  auto planner = amp::AligatorReachPlanner::load(AMP_TEST_ROBOT_PATH);
   if (!planner) {
     std::cerr << "FAILED: " << planner.error().message << "\n";
     return EXIT_FAILURE;
@@ -103,19 +101,34 @@ int main() {
       .target_world_m = end_effector_position(model, data, q_reference),
       .duration_s = 2.0,
   };
-  const auto reachable = (*planner)->plan(request);
+  const auto reachable = planner->plan(request);
   if (!reachable) {
     std::cerr << "FAILED: reachable request was rejected: " << reachable.error().message << "\n";
     return EXIT_FAILURE;
   }
   bool passed = valid_common_trajectory(*reachable, request);
 
+  double midpoint_displacement_squared = 0.0;
+  double terminal_displacement_squared = 0.0;
+  const auto& midpoint = reachable->knots[reachable->knots.size() / 2];
+  const auto& terminal = reachable->knots.back();
+  for (std::size_t joint = 0; joint < amp::kSo101ArmJointCount; ++joint) {
+    const double midpoint_displacement = midpoint.q[joint] - request.q_start[joint];
+    const double terminal_displacement = terminal.q[joint] - request.q_start[joint];
+    midpoint_displacement_squared += midpoint_displacement * midpoint_displacement;
+    terminal_displacement_squared += terminal_displacement * terminal_displacement;
+  }
+  const double midpoint_displacement = std::sqrt(midpoint_displacement_squared);
+  const double terminal_displacement = std::sqrt(terminal_displacement_squared);
+  passed &= require(midpoint_displacement >= 0.1 * terminal_displacement,
+                    "a reachable plan must not postpone nearly all motion until the horizon end");
+
   const amp::ReachRequest no_op_request{
       .q_start = request.q_start,
       .target_world_m = end_effector_position(model, data, request.q_start),
       .duration_s = 2.0,
   };
-  const auto no_op = (*planner)->plan(no_op_request);
+  const auto no_op = planner->plan(no_op_request);
   passed &=
       require(no_op.has_value(), "a target at the initial end-effector position must succeed");
   if (no_op) {
@@ -138,7 +151,7 @@ int main() {
 
   auto unreachable_request = request;
   unreachable_request.target_world_m = Eigen::Vector3d{3.0, 3.0, 3.0};
-  const auto unreachable = (*planner)->plan(unreachable_request);
+  const auto unreachable = planner->plan(unreachable_request);
   passed &= require(!unreachable, "an unreachable target must fail closed");
   if (!unreachable) {
     passed &= require(unreachable.error().code == amp::PlanningErrorCode::planning_failed ||

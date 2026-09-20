@@ -1,5 +1,8 @@
+#include "amp/aligator_reach_planner.hpp"
+
 #include <Eigen/Core>
 #include <algorithm>
+#include <aligator/core/function-abstract.hpp>
 #include <aligator/core/stage-model.hpp>
 #include <aligator/core/traj-opt-problem.hpp>
 #include <aligator/modelling/constraints/box-constraint.hpp>
@@ -27,7 +30,6 @@
 #include <vector>
 
 #include "aligator_validation.hpp"
-#include "amp/aligator_reach_planner.hpp"
 #include "amp/so101_model.hpp"
 
 namespace amp {
@@ -36,6 +38,51 @@ namespace {
 
 constexpr std::size_t kMaximumStepCount = 1000;
 constexpr double kNominalTimeStepS = 0.02;
+
+class JointAccelerationResidual final : public aligator::StageFunctionTpl<double> {
+ public:
+  using Scalar = double;
+  using Base = aligator::StageFunctionTpl<Scalar>;
+  using BaseData = aligator::StageFunctionDataTpl<Scalar>;
+  using Dynamics = aligator::dynamics::MultibodyFreeFwdDynamicsTpl<Scalar>;
+  using DynamicsData = aligator::dynamics::ContinuousDynamicsDataTpl<Scalar>;
+
+  JointAccelerationResidual(const Dynamics& dynamics, const int velocity_dimension)
+      : Base(dynamics.ndx(), dynamics.nu(), velocity_dimension),
+        dynamics_(dynamics),
+        velocity_dimension_(velocity_dimension) {}
+
+  void evaluate(const Eigen::Ref<const Eigen::VectorXd>& state,
+                const Eigen::Ref<const Eigen::VectorXd>& control,
+                BaseData& base_data) const override {
+    auto& data = static_cast<Data&>(base_data);
+    dynamics_.forward(state, control, *data.dynamics_data);
+    data.value_ = data.dynamics_data->xdot_.tail(velocity_dimension_);
+  }
+
+  void computeJacobians(const Eigen::Ref<const Eigen::VectorXd>& state,
+                        const Eigen::Ref<const Eigen::VectorXd>& control,
+                        BaseData& base_data) const override {
+    auto& data = static_cast<Data&>(base_data);
+    dynamics_.forward(state, control, *data.dynamics_data);
+    dynamics_.dForward(state, control, *data.dynamics_data);
+    data.Jx_ = data.dynamics_data->Jx_.bottomRows(velocity_dimension_);
+    data.Ju_ = data.dynamics_data->Ju_.bottomRows(velocity_dimension_);
+  }
+
+  struct Data final : BaseData {
+    explicit Data(const JointAccelerationResidual& residual)
+        : BaseData(residual), dynamics_data(residual.dynamics_.createData()) {}
+
+    std::shared_ptr<DynamicsData> dynamics_data;
+  };
+
+  std::shared_ptr<BaseData> createData() const override { return std::make_shared<Data>(*this); }
+
+ private:
+  Dynamics dynamics_;
+  int velocity_dimension_;
+};
 
 PlanningError error(const PlanningErrorCode code, std::string message) {
   return PlanningError{.code = code, .message = std::move(message)};
@@ -175,15 +222,17 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     const ContinuousDynamics continuous_dynamics(state_space, actuation);
     const Dynamics dynamics(continuous_dynamics, time_step);
 
-    Eigen::MatrixXd running_state_weights = Eigen::MatrixXd::Zero(ndx, ndx);
-    running_state_weights.diagonal().head(nv).array() = 1.0 * time_step;
-    running_state_weights.diagonal().tail(nv).array() = 1e-2 * time_step;
+    const Eigen::MatrixXd running_acceleration_weights =
+        time_step * Eigen::MatrixXd::Identity(nv, nv);
     const Eigen::MatrixXd running_control_weights =
         1e-3 * time_step * Eigen::MatrixXd::Identity(nu, nu);
     const Eigen::VectorXd zero_control = Eigen::VectorXd::Zero(nu);
 
     CostStack running_cost(state_space, nu);
-    running_cost.addCost("posture", QuadraticStateCost(state_space, nu, x0, running_state_weights));
+    running_cost.addCost(
+        "acceleration",
+        QuadraticResidualCost(state_space, JointAccelerationResidual(continuous_dynamics, nv),
+                              running_acceleration_weights));
     running_cost.addCost("effort",
                          QuadraticControlCost(state_space, zero_control, running_control_weights));
 
@@ -208,8 +257,9 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     std::vector<xyz::polymorphic<StageModel>> stages(step_count, stage);
 
     CostStack terminal_cost(state_space, nu);
-    const Eigen::MatrixXd terminal_state_weights = 1.0 * Eigen::MatrixXd::Identity(ndx, ndx);
-    terminal_cost.addCost("posture",
+    Eigen::MatrixXd terminal_state_weights = Eigen::MatrixXd::Zero(ndx, ndx);
+    terminal_state_weights.diagonal().tail(nv).setConstant(1e3);
+    terminal_cost.addCost("joint_velocity",
                           QuadraticStateCost(state_space, nu, x0, terminal_state_weights));
 
     const auto frame_id = arm_model.getFrameId(kSo101EndEffectorFrame.data());
@@ -358,7 +408,6 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
     }
 
     trajectory.report = PlanningReport{
-        .strategy = ReachPlannerKind::aligator,
         .final_position_error_m = final_position_error,
         .final_frame_speed_mps = final_frame_speed,
         .max_joint_limit_violation_rad = maximum_joint_violation,
@@ -373,13 +422,8 @@ std::expected<JointTrajectory, PlanningError> AligatorReachPlanner::plan(
   }
 }
 
-std::expected<std::unique_ptr<ReachPlanner>, PlanningError> ReachPlannerFactory::create(
-    const ReachPlannerKind kind, const std::filesystem::path& robot_mjcf) {
-  if (kind != ReachPlannerKind::aligator) {
-    return std::unexpected(
-        error(PlanningErrorCode::strategy_unavailable, "requested reach strategy is unavailable"));
-  }
-
+std::expected<AligatorReachPlanner, PlanningError> AligatorReachPlanner::load(
+    const std::filesystem::path& robot_mjcf) {
   std::error_code filesystem_error;
   const auto absolute_path = std::filesystem::absolute(robot_mjcf, filesystem_error);
   if (filesystem_error || !std::filesystem::is_regular_file(absolute_path, filesystem_error)) {
@@ -419,9 +463,7 @@ std::expected<std::unique_ptr<ReachPlanner>, PlanningError> ReachPlannerFactory:
         error(PlanningErrorCode::frame_missing, "robot model has no gripperframe"));
   }
 
-  auto concrete = std::unique_ptr<AligatorReachPlanner>(
-      new AligatorReachPlanner(std::make_unique<AligatorReachPlanner::Impl>(std::move(model))));
-  return std::unique_ptr<ReachPlanner>(std::move(concrete));
+  return AligatorReachPlanner(std::make_unique<Impl>(std::move(model)));
 }
 
 }  // namespace amp

@@ -44,19 +44,21 @@ if(NOT EXISTS "${AMP_SO101_SCENE}")
   message(FATAL_ERROR "SO-101 scene not found: ${AMP_SO101_SCENE}")
 endif()
 
-add_library(amp_simulation src/simulation.cpp)
+add_library(amp_simulation src/core/simulation.cpp)
 add_library(amp::simulation ALIAS amp_simulation)
 target_include_directories(amp_simulation PUBLIC include)
 target_link_libraries(amp_simulation PUBLIC mujoco::mujoco)
 target_compile_features(amp_simulation PUBLIC cxx_std_23)
 
-add_library(amp_viewer src/viewer.cpp)
+add_library(amp_viewer src/viewer/viewer.cpp)
 add_library(amp::viewer ALIAS amp_viewer)
 target_include_directories(amp_viewer PUBLIC include)
 target_link_libraries(amp_viewer PUBLIC amp::simulation PRIVATE ${AMP_GLFW_TARGET})
 target_compile_features(amp_viewer PUBLIC cxx_std_23)
 
-add_library(amp_planning src/aligator_validation.cpp src/reach_planner.cpp)
+add_library(amp_planning
+            src/core/aligator_reach_planner.cpp
+            src/core/aligator_validation.cpp)
 add_library(amp::planning ALIAS amp_planning)
 target_include_directories(amp_planning PUBLIC include)
 target_link_libraries(amp_planning
@@ -64,18 +66,18 @@ target_link_libraries(amp_planning
                       PRIVATE aligator::aligator pinocchio::pinocchio_parsers)
 target_compile_features(amp_planning PUBLIC cxx_std_23)
 
-add_library(amp_playback src/trajectory_player.cpp)
+add_library(amp_playback src/core/trajectory_player.cpp)
 add_library(amp::playback ALIAS amp_playback)
 target_include_directories(amp_playback PUBLIC include)
 target_link_libraries(amp_playback PUBLIC amp::simulation PRIVATE amp::viewer)
 target_compile_features(amp_playback PUBLIC cxx_std_23)
 
-add_executable(so101_sim src/main.cpp)
+add_executable(so101_sim src/viewer/main.cpp)
 target_link_libraries(so101_sim PRIVATE amp::viewer)
 target_compile_features(so101_sim PRIVATE cxx_std_23)
 target_compile_definitions(so101_sim PRIVATE AMP_DEFAULT_SCENE_PATH="${AMP_SO101_SCENE}")
 
-add_executable(so101_reach src/reach_main.cpp)
+add_executable(so101_reach src/core/reach_main.cpp)
 target_link_libraries(so101_reach PRIVATE amp::planning amp::playback amp::simulation)
 target_compile_features(so101_reach PRIVATE cxx_std_23)
 target_compile_definitions(
@@ -120,12 +122,13 @@ if(AMP_BUILD_TESTS)
   )
   add_test(NAME model_parity COMMAND model_parity_test)
 
-  add_executable(reach_planner_contract_test tests/reach_planner_contract_test.cpp)
-  target_link_libraries(reach_planner_contract_test PRIVATE amp::planning)
-  target_compile_features(reach_planner_contract_test PRIVATE cxx_std_23)
-  target_compile_definitions(reach_planner_contract_test
+  add_executable(aligator_reach_planner_contract_test
+                 tests/aligator_reach_planner_contract_test.cpp)
+  target_link_libraries(aligator_reach_planner_contract_test PRIVATE amp::planning)
+  target_compile_features(aligator_reach_planner_contract_test PRIVATE cxx_std_23)
+  target_compile_definitions(aligator_reach_planner_contract_test
                              PRIVATE AMP_TEST_ROBOT_PATH="${AMP_SO101_MODEL_PATH}/so101.xml")
-  add_test(NAME reach_planner_contract COMMAND reach_planner_contract_test)
+  add_test(NAME aligator_reach_planner_contract COMMAND aligator_reach_planner_contract_test)
 
   add_executable(aligator_reach_planner_test tests/aligator_reach_planner_test.cpp)
   target_link_libraries(aligator_reach_planner_test
@@ -136,7 +139,7 @@ if(AMP_BUILD_TESTS)
   add_test(NAME aligator_reachable_target COMMAND aligator_reach_planner_test)
 
   add_executable(aligator_validation_test tests/aligator_validation_test.cpp)
-  target_include_directories(aligator_validation_test PRIVATE src)
+  target_include_directories(aligator_validation_test PRIVATE src/core)
   target_link_libraries(aligator_validation_test PRIVATE amp::planning)
   target_compile_features(aligator_validation_test PRIVATE cxx_std_23)
   add_test(NAME aligator_internal_validation COMMAND aligator_validation_test)
